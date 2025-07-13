@@ -31,7 +31,7 @@ elif [ $# -eq 2 ]; then
         # echo "------------------------------------------------"
         while read -r num; do
         # echo "num = $num sum = $sum and lines = $lines"
-        sum=$(echo "$sum + $num"| bc)
+        sum=$((sum + num))
         if [ $num -ne 0 ]; then
             lines=$((lines + 1))
         fi
