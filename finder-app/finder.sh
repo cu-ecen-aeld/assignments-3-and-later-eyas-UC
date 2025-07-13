@@ -33,7 +33,7 @@ elif [ $# -eq 2 ]; then
         # echo "num = $num sum = $sum and lines = $lines"
         sum=$(echo "$sum + $num"| bc)
         if [ $num -ne 0 ]; then
-            lines=$(echo "$lines + 1"| bc)
+            lines=$((lines + 1))
         fi
         done < $tmp_file
 
