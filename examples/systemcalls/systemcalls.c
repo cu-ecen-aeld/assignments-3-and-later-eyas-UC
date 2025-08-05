@@ -1,4 +1,5 @@
 #include "systemcalls.h"
+#include <errno.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -16,8 +17,25 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
-
-    return true;
+    int sys_ret = system(cmd);
+    printf("\033[1;34m return value is  <%i>\033[0m\n", sys_ret);
+    fflush(stdout);
+    if ((cmd == NULL) && (sys_ret == 0))
+    {
+        return false;
+    }
+    if (sys_ret == -1 )
+    {
+        return false;
+    }
+    else if (sys_ret == 127)
+    {
+        return false;
+    }
+    else
+    {
+        return true;
+    }
 }
 
 /**
