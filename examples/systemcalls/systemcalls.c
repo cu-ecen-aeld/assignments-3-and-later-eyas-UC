@@ -1,5 +1,4 @@
 #include "systemcalls.h"
-#include <errno.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -61,11 +60,13 @@ bool do_exec(int count, ...)
     for(i=0; i<count; i++)
     {
         command[i] = va_arg(args, char *);
+        printf("\033[1;34m command value is <%s>\033[0m\n", command[i]);
+        fflush(stdout);
     }
     command[count] = NULL;
     // this line is to avoid a compile warning before your implementation is complete
     // and may be removed
-    command[count] = command[count];
+    // command[count] = command[count];
 
 /*
  * TODO:
@@ -76,10 +77,52 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
+    // i need to get current pid
+    // int parent_pid = getpid();
+    int fork_ret = fork();
+
+    if (fork_ret == -1)
+    {   
+        // failed (you are in parent process)
+        return false;
+    }
+    else if (fork_ret == 0)
+    {
+        //inside child
+        printf("\033[1;34m inside child <%i> \033[0m\n",fork_ret);
+        fflush(stdout);
+        // for (int i =1 ; i < count; i++)
+        // {
+        // }
+        printf("\033[1;34m value of &command[0] is <%ls> \033[0m\n",(int*) &command[0]);
+        printf("\033[1;34m value of &command[1] is <%ls> \033[0m\n",(int*) &command[1]);
+        execv(command[0],&command[1]);
+        exit(-1); // since it should never be reached if execv is executed correctly
+    }
+    else
+    {
+        // parent process
+        printf("\033[1;34m inside parent <%i>\033[0m\n",fork_ret);
+        fflush(stdout);
+    }
+    int status;
+    if (waitpid (fork_ret, &status, 0) == -1)
+    {
+        return false;
+    }
+    else if (WIFEXITED(status))
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+
 
     va_end(args);
 
-    return true;
+    // return true;
 }
 
 /**
