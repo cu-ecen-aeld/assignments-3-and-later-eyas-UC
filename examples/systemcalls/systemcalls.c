@@ -17,8 +17,8 @@ bool do_system(const char *cmd)
  *   or false() if it returned a failure
 */
     int sys_ret = system(cmd);
-    printf("\033[1;34m return value is  <%i>\033[0m\n", sys_ret);
-    fflush(stdout);
+    // printf("\033[1;34m return value is  <%i>\033[0m \n", sys_ret);
+    
     if ((cmd == NULL) && (sys_ret == 0))
     {
         return false;
@@ -53,6 +53,7 @@ bool do_system(const char *cmd)
 
 bool do_exec(int count, ...)
 {
+    bool return_value = false;
     va_list args;
     va_start(args, count);
     char * command[count+1];
@@ -60,10 +61,10 @@ bool do_exec(int count, ...)
     for(i=0; i<count; i++)
     {
         command[i] = va_arg(args, char *);
-        printf("\033[1;34m command value is <%s>\033[0m\n", command[i]);
-        fflush(stdout);
+        
     }
     command[count] = NULL;
+    // 
     // this line is to avoid a compile warning before your implementation is complete
     // and may be removed
     // command[count] = command[count];
@@ -77,52 +78,53 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
-    // i need to get current pid
-    // int parent_pid = getpid();
-    int fork_ret = fork();
 
-    if (fork_ret == -1)
+
+    int pid = fork();
+
+    if (pid == -1)
     {   
-        // failed (you are in parent process)
+        // failed (you are still in parent process)
         return false;
     }
-    else if (fork_ret == 0)
+    // if child
+    else if (pid == 0)
     {
-        //inside child
-        printf("\033[1;34m inside child <%i> \033[0m\n",fork_ret);
-        fflush(stdout);
-        // for (int i =1 ; i < count; i++)
-        // {
-        // }
-        printf("\033[1;34m value of &command[0] is <%ls> \033[0m\n",(int*) &command[0]);
-        printf("\033[1;34m value of &command[1] is <%ls> \033[0m\n",(int*) &command[1]);
-        execv(command[0],&command[1]);
-        exit(-1); // since it should never be reached if execv is executed correctly
+        if (execv(command[0],command) == -1)
+        {
+            exit(-1); // need to exit with a non 0 value so that waitpid can capture this exit as a failure
+        }
     }
     else
     {
         // parent process
-        printf("\033[1;34m inside parent <%i>\033[0m\n",fork_ret);
-        fflush(stdout);
+        // printf("\033[1;34m inside parent <%i>\033[0m\n",pid);
+        
+        int status;
+        if (waitpid (pid, &status, 0) == -1)
+        {
+            return_value = false;
+        }
+        else if (WIFEXITED(status))
+        {
+            if (WEXITSTATUS(status) == 0)
+            {
+                return_value = true;
+            }
+            else
+            {
+                return_value = false;
+            }
+        }
+        else
+        {
+            return_value = false;
+        }
     }
-    int status;
-    if (waitpid (fork_ret, &status, 0) == -1)
-    {
-        return false;
-    }
-    else if (WIFEXITED(status))
-    {
-        return true;
-    }
-    else
-    {
-        return false;
-    }
-
-
+    
     va_end(args);
 
-    // return true;
+    return return_value;
 }
 
 /**
@@ -143,7 +145,7 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
     command[count] = NULL;
     // this line is to avoid a compile warning before your implementation is complete
     // and may be removed
-    command[count] = command[count];
+    // command[count] = command[count];
 
 
 /*
@@ -153,8 +155,54 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *
 */
-
+    bool return_value = false;
+    int pid = fork();
+    int fd = open(outputfile, O_CREAT | O_WRONLY | O_TRUNC, S_IRWXU | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+    if (pid == -1)
+    {   
+        // failed (you are still in parent process)
+        return false;
+    }
+    else if (pid == 0)
+    {
+        //inside child
+        if (dup2(fd, STDOUT_FILENO)<0)
+        {
+            return false;
+        }
+        if (execv(command[0],command) == -1)
+        {
+            exit(-1); // need to exit with a non 0 value so that waitpid can capture this exit as a failure
+        }
+    }
+    else
+    {
+        // parent process
+        int status;
+        if (waitpid (pid, &status, 0) == -1)
+        {
+            return_value = false;
+        }
+        else if (WIFEXITED(status))
+        {
+            if (WEXITSTATUS(status) == 0)
+            {
+                return_value = true;
+            }
+            else
+            {
+                return_value = false;
+            }
+        }
+        else
+        {
+            return_value = false;
+        }
+    }
+    
     va_end(args);
 
-    return true;
+    return return_value;
+
+ 
 }
