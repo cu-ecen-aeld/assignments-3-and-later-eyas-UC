@@ -95,7 +95,7 @@ ${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library"
 # -------------------------Start of Assisted work ---------------------------
 # ---------------------------------------------------------------------------
 # got the sysroot correct copy from this repo
-# https://github.com/cu-ecen-aeld/assignments-3-and-later-thanhtungmanutd/tree/main/finder-app
+# https://github.com/cu-ecen-aeld/assignments-3-and-later-Rajshekhar1208/blob/main/finder-app/manual-linux.sh
 # to help fix the can't run /bin/sh issue when running QEMU
 SYSROOT=$(${CROSS_COMPILE}gcc -print-sysroot)
 
