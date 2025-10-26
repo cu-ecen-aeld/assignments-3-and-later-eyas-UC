@@ -1,5 +1,7 @@
 
 #include "signal_handler.h"
+#include <signal.h>
+#include <string.h>
 #include <sys/syslog.h>
 #define END_CHAR '\n'
 
@@ -8,6 +10,7 @@ extern struct sigaction new_action;
 extern char * to_write;
 extern int socket_fd;
 extern char ip4[INET_ADDRSTRLEN]; 
+#define INIT_ALLOCATION 8U
 
 
 void* socket_listen(void * arg);
@@ -89,11 +92,19 @@ int status;
     
     int read_ret;
     char buffer='x';
-    to_write = malloc(1);
-    uint size = 0;
+    uint size = INIT_ALLOCATION;
+    to_write = malloc(size);
+    if (to_write ==NULL)
+    {
+        int errno_malloc = errno;
+        syslog(LOG_ERR, "error in malloc. errno is %s", strerror(errno_malloc));
+    }
+    uint itarator = 0;
     while (true)
     {
-        syslog(LOG_INFO, "before accept");
+        syslog(LOG_INFO, " ");
+        syslog(LOG_INFO, "new data ------------------------------------------");
+        syslog(LOG_INFO, " ");
         int new_fd = accept(socket_fd,(struct sockaddr *)&their_addr, &addr_size);
         if (new_fd <0) 
         {
@@ -106,15 +117,25 @@ int status;
             printf("The IPv4 address is: %s\n", ip4);
             syslog(LOG_INFO, "Accepted connection from %s", ip4);
         }
+
         while((read_ret = read(new_fd, &buffer, ONE_BYTE)) >0)
         {
-            to_write = realloc(to_write,(size +1 )* sizeof(char));
+
+            // size doubling section
+            // **************************************************************//
+            if (size <= itarator)
+            {
+                syslog(LOG_INFO,"increased size from %i",size);
+                size = size * 2;
+                to_write = realloc(to_write,(size) * sizeof(char));
+                syslog(LOG_INFO,"to %i",size);
+            }
             if (to_write == NULL)
             {
                 syslog(LOG_ERR, "failed to reallocate memory");
             }
-            to_write[size] = buffer;
-            size++;
+            to_write[itarator] = buffer;
+            itarator++;
 
             if (buffer == END_CHAR)
             {
@@ -122,14 +143,15 @@ int status;
                 {
                     syslog(LOG_ERR, "failed to reallocate memory");
                 }
-                syslog(LOG_INFO, "openning:<%s>",TEMP_FILE_PATH);
+                // syslog(LOG_INFO, "openning:<%s>",TEMP_FILE_PATH);
                 int fd = open(TEMP_FILE_PATH, O_SYNC| O_RDWR  |O_CREAT | O_APPEND, S_IWUSR |S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
-                syslog(LOG_INFO, "writing:<%s> to %s",to_write,TEMP_FILE_PATH);
-                write(fd, to_write, size);
-                syslog(LOG_INFO, "syncing:<%s>",TEMP_FILE_PATH);
+                syslog(LOG_INFO, "writing:<%s> to <%s>-------- itarator = %i",to_write,TEMP_FILE_PATH, itarator);
+                write(fd, to_write, itarator);
+                // syslog(LOG_INFO, "syncing:<%s>",TEMP_FILE_PATH);
                 fsync(fd);
-                syslog(LOG_INFO, "closing:<%s>",TEMP_FILE_PATH);
-                ssize_t  ret_send = send(new_fd,to_write,size,MSG_DONTWAIT);
+                // syslog(LOG_INFO, "closing:<%s>",TEMP_FILE_PATH);
+                printf("to_write=\n<%s>",to_write);
+                ssize_t  ret_send = send(new_fd,to_write,itarator,MSG_DONTWAIT);
                 if (ret_send < 0 )
                 {
                     int read_errno = errno;
@@ -139,9 +161,14 @@ int status;
                 {
                     syslog(LOG_INFO, "send() passed with ret %li", ret_send);
                 }
-                to_write = realloc(to_write,ZERO);
+                // syslog(LOG_INFO, "current allocated memory %i", size);
+                // size = INIT_ALLOCATION;
+                // to_write = realloc(to_write, size);
+                // memset(to_write,0,strlen(to_write));
+                // syslog(LOG_INFO, "reducing memory-allocation to %i memory ", size);
                 close(fd);
-                size = 0;
+                close(new_fd);
+                // itarator = 0;
             }
         }
     }
