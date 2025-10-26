@@ -5,6 +5,9 @@ CC = gcc
 CFLAGS = -Wall -g
 TARGET = aesdsocket
 SRCS = aesdsocket.c
+SRCS += signal_handler.c
+
+HEADERS = signal_handler.h 
 OBJS = $(SRCS:.c=.o)
 BUILD_COMMAND=$(CROSS_COMPILE)$(CC) $(CFLAGS) 
 
