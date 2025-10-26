@@ -143,13 +143,13 @@ int status;
                 {
                     syslog(LOG_ERR, "failed to reallocate memory");
                 }
-                // syslog(LOG_INFO, "openning:<%s>",TEMP_FILE_PATH);
+                syslog(LOG_INFO, "openning:<%s>",TEMP_FILE_PATH);
                 int fd = open(TEMP_FILE_PATH, O_SYNC| O_RDWR  |O_CREAT | O_APPEND, S_IWUSR |S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
                 syslog(LOG_INFO, "writing:<%s> to <%s>-------- itarator = %i",to_write,TEMP_FILE_PATH, itarator);
                 write(fd, to_write, itarator);
-                // syslog(LOG_INFO, "syncing:<%s>",TEMP_FILE_PATH);
+                syslog(LOG_INFO, "syncing:<%s>",TEMP_FILE_PATH);
                 fsync(fd);
-                // syslog(LOG_INFO, "closing:<%s>",TEMP_FILE_PATH);
+                syslog(LOG_INFO, "closing:<%s>",TEMP_FILE_PATH);
                 printf("to_write=\n<%s>",to_write);
                 ssize_t  ret_send = send(new_fd,to_write,itarator,MSG_DONTWAIT);
                 if (ret_send < 0 )
@@ -161,14 +161,8 @@ int status;
                 {
                     syslog(LOG_INFO, "send() passed with ret %li", ret_send);
                 }
-                // syslog(LOG_INFO, "current allocated memory %i", size);
-                // size = INIT_ALLOCATION;
-                // to_write = realloc(to_write, size);
-                // memset(to_write,0,strlen(to_write));
-                // syslog(LOG_INFO, "reducing memory-allocation to %i memory ", size);
                 close(fd);
                 close(new_fd);
-                // itarator = 0;
             }
         }
     }
