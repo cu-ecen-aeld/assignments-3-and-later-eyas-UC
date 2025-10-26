@@ -18,6 +18,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
+#include <netdb.h>
+#include <string.h>
+#include <sys/syslog.h>
 
 #include <pthread.h>
 
