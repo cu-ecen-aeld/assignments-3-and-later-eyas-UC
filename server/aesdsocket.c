@@ -1,5 +1,6 @@
 
 #include "signal_handler.h"
+#include <sys/syslog.h>
 
 
 void* socket_listen(void * arg);
@@ -22,7 +23,7 @@ int main(int argc, char *argv[])
     }
     if (pid == ZERO)
     {
-            printf("starting aesd socket server . . .\n");
+            syslog(LOG_INFO,"starting aesd socket server . . .\n");
             socket_listen("");
     }
 
