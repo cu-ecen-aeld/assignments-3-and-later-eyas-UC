@@ -51,7 +51,6 @@ int status;
 
     struct sockaddr_storage their_addr;
     socklen_t addr_size = sizeof(their_addr);
-    printf("before listen\n");
     syslog(LOG_INFO, "before accepting new connection");
     
     int read_ret;
