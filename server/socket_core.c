@@ -17,7 +17,7 @@ int status;
     hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
     hints.ai_flags = AI_PASSIVE;     // fill in my IP for me
 
-    if((status = getaddrinfo("localhost","9000", &hints, &result)) !=0)
+    if((status = getaddrinfo("0.0.0.0","9000", &hints, &result)) !=0)
     {
         fprintf(stderr,"get address error: %s\n", gai_strerror(status));
         exit(1);
