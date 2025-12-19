@@ -4,7 +4,7 @@ extern struct sigaction new_action;
 extern char * to_write;
 extern int socket_fd;
 extern char ip4[INET_ADDRSTRLEN]; 
-#define INIT_ALLOCATION 8U
+#define INIT_ALLOCATION BUFFER_SIZE
 #define END_CHAR '\n'
 
 void* socket_listen(void * arg)
@@ -54,15 +54,16 @@ int status;
     syslog(LOG_INFO, "before accepting new connection");
     
     int read_ret;
-    char buffer='x';
+    char buffer[BUFFER_SIZE];
     uint size = INIT_ALLOCATION;
+    size_t  current_count=0;
     to_write = malloc(size);
     if (to_write ==NULL)
     {
         int errno_malloc = errno;
         syslog(LOG_ERR, "error in malloc. errno is %s", strerror(errno_malloc));
     }
-    uint itarator = 0;
+
     while (true)
     {
         syslog(LOG_INFO, " ");
@@ -81,12 +82,12 @@ int status;
             syslog(LOG_INFO, "Accepted connection from %s", ip4);
         }
 
-        while((read_ret = read(new_fd, &buffer, ONE_BYTE)) >0)
+        while((read_ret = read(new_fd, buffer, BUFFER_SIZE)) >0)
         {
 
             // size doubling section
             // **************************************************************//
-            if (size <= itarator)
+            if (size <= current_count)
             {
                 syslog(LOG_INFO,"increased size from %i",size);
                 size = size * 2;
@@ -97,36 +98,36 @@ int status;
             {
                 syslog(LOG_ERR, "failed to reallocate memory");
             }
-            to_write[itarator] = buffer;
-            itarator++;
-
-            if (buffer == END_CHAR)
+            memcpy(to_write + current_count , buffer,read_ret);
+            current_count += read_ret; 
+            
+        }
+        if (read_ret == 0)
+        {
+            if (to_write == NULL)
             {
-                if (to_write == NULL)
-                {
-                    syslog(LOG_ERR, "failed to reallocate memory");
-                }
-                // syslog(LOG_INFO, "openning:<%s>",TEMP_FILE_PATH);
-                int fd = open(TEMP_FILE_PATH, O_SYNC| O_RDWR  |O_CREAT | O_APPEND, S_IWUSR |S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
-                // syslog(LOG_INFO, "writing:<%s> to <%s>-------- itarator = %i",to_write,TEMP_FILE_PATH, itarator);
-                write(fd, to_write, itarator);
-                // syslog(LOG_INFO, "syncing:<%s>",TEMP_FILE_PATH);
-                fsync(fd);
-                // syslog(LOG_INFO, "closing:<%s>",TEMP_FILE_PATH);
-                // printf("to_write=\n<%s>",to_write);
-                ssize_t  ret_send = send(new_fd,to_write,itarator,MSG_DONTWAIT);
-                if (ret_send < 0 )
-                {
-                    int read_errno = errno;
-                    syslog(LOG_ERR, "send() failed: %s (errno=%d)\n", strerror(read_errno), read_errno);
-                }
-                else
-                {
-                    syslog(LOG_INFO, "send() passed with ret %li", ret_send);
-                }
-                close(fd);
-                close(new_fd);
+                syslog(LOG_ERR, "failed to reallocate memory");
             }
+            // syslog(LOG_INFO, "openning:<%s>",TEMP_FILE_PATH);
+            int fd = open(TEMP_FILE_PATH, O_SYNC| O_RDWR  |O_CREAT | O_APPEND, S_IWUSR |S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
+            // syslog(LOG_INFO, "writing:<%s> to <%s>-------- current_count = %i",to_write,TEMP_FILE_PATH, current_count);
+            write(fd, to_write, current_count);
+            // syslog(LOG_INFO, "syncing:<%s>",TEMP_FILE_PATH);
+            fsync(fd);
+            // syslog(LOG_INFO, "closing:<%s>",TEMP_FILE_PATH);
+            // printf("to_write=\n<%s>",to_write);
+            ssize_t  ret_send = send(new_fd,to_write,current_count,MSG_DONTWAIT);
+            if (ret_send < 0 )
+            {
+                int read_errno = errno;
+                syslog(LOG_ERR, "send() failed: %s (errno=%d)\n", strerror(read_errno), read_errno);
+            }
+            else
+            {
+                syslog(LOG_INFO, "send() passed with ret %li", ret_send);
+            }
+            close(fd);
+            close(new_fd);
         }
     }
     syslog(LOG_ERR, "error in read: code = <%i>", read_ret);
