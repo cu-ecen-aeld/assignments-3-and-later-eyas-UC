@@ -1,9 +1,9 @@
 
 #include "signal_handler.h"
+#include "socket_core.h"
 #include <sys/syslog.h>
 
 
-void* socket_listen(void * arg);
 int main(int argc, char *argv[])
 {
     if (setup_signal_handler() == FAILURE)

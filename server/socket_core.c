@@ -1,4 +1,9 @@
 #include "signal_handler.h"
+#include <errno.h>
+#include <string.h>
+#include <sys/syslog.h>
+#include <threads.h>
+#include "socket_core.h"
 extern int signal_caught;
 extern struct sigaction new_action;
 extern char * to_write;
@@ -6,6 +11,10 @@ extern int socket_fd;
 extern char ip4[INET_ADDRSTRLEN]; 
 #define INIT_ALLOCATION BUFFER_SIZE
 #define END_CHAR '\n'
+void* connection_handler(void *fd)
+{
+
+}
 
 void* socket_listen(void * arg)
 {
@@ -53,9 +62,9 @@ int status;
     socklen_t addr_size = sizeof(their_addr);
     syslog(LOG_INFO, "before accepting new connection");
     
-    int read_ret;
+    size_t read_ret;
     char buffer[BUFFER_SIZE];
-    uint size = INIT_ALLOCATION;
+    size_t size = INIT_ALLOCATION;
     size_t  current_count=0;
     to_write = malloc(size);
     if (to_write ==NULL)
@@ -70,6 +79,14 @@ int status;
         syslog(LOG_INFO, "new data ------------------------------------------");
         syslog(LOG_INFO, " ");
         int new_fd = accept(socket_fd,(struct sockaddr *)&their_addr, &addr_size);
+        // pthread_attr_t attributes;
+        pthread_t thread_id;
+        int thread_ret = pthread_create(&thread_id,NULL,connection_handler,(void *)&new_fd);
+        if (thread_ret != 0 )
+        {
+            int errno_local = errno;// errro occured
+            syslog(LOG_ERR,"failed to create a thread\nerrno = %i,\n<%s>",errno_local,strerror(errno_local));
+        }
         if (new_fd <0) 
         {
             int listen_errno = errno;
@@ -84,53 +101,59 @@ int status;
 
         while((read_ret = read(new_fd, buffer, BUFFER_SIZE)) >0)
         {
-
             // size doubling section
             // **************************************************************//
-            if (size <= current_count)
+            if (size <= (current_count + read_ret))
             {
-                syslog(LOG_INFO,"increased size from %i",size);
-                size = size * 2;
-                to_write = realloc(to_write,(size) * sizeof(char));
-                syslog(LOG_INFO,"to %i",size);
+                syslog(LOG_INFO,"increased size from %li",size);
+                size = size * 3;
+                syslog(LOG_INFO,"attemping to allocate size %li",size);
+                syslog(LOG_INFO,"current count is  %li",current_count);
+
+                to_write = realloc(to_write,size);
+                int errno_local = errno;
+
+                syslog(LOG_ERR,"errno  =  %i",errno_local);
+                syslog(LOG_INFO,"to %li",size);
             }
             if (to_write == NULL)
             {
                 syslog(LOG_ERR, "failed to reallocate memory");
             }
+            syslog(LOG_INFO, "received %s with length %li",buffer, read_ret);
             memcpy(to_write + current_count , buffer,read_ret);
-            current_count += read_ret; 
+            current_count += read_ret;
+            if ( read_ret < BUFFER_SIZE)
+            {
+                syslog(LOG_INFO, "exiting loop size smaller than buffer (message ended)!");
+                break;
+                //exit this while loop
+            }
             
         }
-        if (read_ret == 0)
+        if (to_write == NULL)
         {
-            if (to_write == NULL)
-            {
-                syslog(LOG_ERR, "failed to reallocate memory");
-            }
-            // syslog(LOG_INFO, "openning:<%s>",TEMP_FILE_PATH);
-            int fd = open(TEMP_FILE_PATH, O_SYNC| O_RDWR  |O_CREAT | O_APPEND, S_IWUSR |S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
-            // syslog(LOG_INFO, "writing:<%s> to <%s>-------- current_count = %i",to_write,TEMP_FILE_PATH, current_count);
-            write(fd, to_write, current_count);
-            // syslog(LOG_INFO, "syncing:<%s>",TEMP_FILE_PATH);
-            fsync(fd);
-            // syslog(LOG_INFO, "closing:<%s>",TEMP_FILE_PATH);
-            // printf("to_write=\n<%s>",to_write);
-            ssize_t  ret_send = send(new_fd,to_write,current_count,MSG_DONTWAIT);
-            if (ret_send < 0 )
-            {
-                int read_errno = errno;
-                syslog(LOG_ERR, "send() failed: %s (errno=%d)\n", strerror(read_errno), read_errno);
-            }
-            else
-            {
-                syslog(LOG_INFO, "send() passed with ret %li", ret_send);
-            }
-            close(fd);
-            close(new_fd);
+            syslog(LOG_ERR, "failed to reallocate memory");
         }
+        
+        size_t  ret_send = send(new_fd,to_write,current_count,MSG_DONTWAIT);
+        if (ret_send < 0 )
+        {
+            int read_errno = errno;
+            syslog(LOG_ERR, "send() failed: %s (errno=%d)\n", strerror(read_errno), read_errno);
+        }
+        else
+        {
+            syslog(LOG_INFO, "send() passed with ret %li", ret_send);
+        }
+        close(new_fd);
+        int fd = open(TEMP_FILE_PATH, O_SYNC| O_RDWR  |O_CREAT | O_APPEND, S_IWUSR |S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
+        write(fd, to_write, current_count);
+        fsync(fd);
+        close(fd);
+        
     }
-    syslog(LOG_ERR, "error in read: code = <%i>", read_ret);
+    syslog(LOG_ERR, "error in read: code = <%li>", read_ret);
    
     return 0;    
 }

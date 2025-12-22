@@ -2,6 +2,7 @@
 #define SOCKET_CORE_H
 
 void* socket_listen(void * arg);
+void* connection_handler(void * fd);
 
 
 #endif
