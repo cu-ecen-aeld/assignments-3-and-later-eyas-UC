@@ -41,7 +41,7 @@
 
 
 
-void signal_handler (const int signal_no);
+void signal_handler(const int signal_no);
 bool setup_signal_handler();
 
 

@@ -1,19 +1,98 @@
+#include "linkedlist.h"
 #include "signal_handler.h"
+// #include <sys/types.h>
 #include <errno.h>
+#include <sched.h>
+#include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/syslog.h>
 #include <threads.h>
 #include "socket_core.h"
+#include <time.h>
+#include <unistd.h>
+
 extern int signal_caught;
 extern struct sigaction new_action;
 extern char * to_write;
 extern int socket_fd;
-extern char ip4[INET_ADDRSTRLEN]; 
+extern char ip4[INET_ADDRSTRLEN];
+extern ll * linked_list;
+pthread_mutex_t file_mutex;
+pthread_mutex_t reply_mutex;
 #define INIT_ALLOCATION BUFFER_SIZE
 #define END_CHAR '\n'
-void* connection_handler(void *fd)
-{
 
+void get_time(char * outstr)
+{
+    time_t t;
+    struct tm *tmp;
+
+    t = time(NULL);
+    tmp = localtime(&t);
+    if (tmp == NULL)
+    {
+        perror("localtime");
+    }
+
+    if (strftime(outstr, 200, "%a, %d %b %Y %T %z", tmp) == 0)
+    {
+        fprintf(stderr, "strftime returned 0");
+    }
+
+    printf("Result string is <%s>\n", outstr);
+}
+void* printing_content(void * passed_linkedlist)
+{
+    ll* linkedlist = (ll*) passed_linkedlist;
+    while(1)
+    {
+        sleep(1);
+        node * temp = linkedlist->head;
+        while(temp != NULL)
+        {
+            print_node(temp);
+            temp = temp->next;
+        }
+    }
+
+}
+void* connection_handler(void *passed_fulldata)
+{
+    char    time_str[200];
+    get_time(time_str);
+    full_data_t* fulldata = (full_data_t*) passed_fulldata;
+    // pid_t  tid = gettid();
+    pthread_t thread_id =  pthread_self();
+    fulldata->thread_data.thread_id=thread_id;
+    print_thread_data(fulldata->thread_data);
+    insert_element_to_linked_list(fulldata->linkedlist,fulldata->thread_data);
+    node * thread_data = get_thread_data(fulldata->linkedlist,thread_id);
+    if (thread_data == NULL)
+    {
+        printf("could not find thread id\n");
+        return NULL;
+    }
+    else
+    {
+        print_node(thread_data);
+        printf("fd = <%i>",thread_data->data.file_descriptor);
+        printf("inside the created thread <%lu>",thread_id);
+    }
+
+    if (thread_data->data.file_descriptor < 0) 
+    {
+        int listen_errno = errno;
+        fprintf(stderr, "accept() failed: %s (errno=%d)\n", strerror(listen_errno), listen_errno);
+    }
+    else 
+    {
+        inet_ntop(AF_INET, &thread_data->data.their_addr, ip4, INET_ADDRSTRLEN);
+        printf("The IPv4 address is: %s\n", ip4);
+        syslog(LOG_INFO, "Accepted connection from %s", ip4);
+    }
+    set_thread_status(fulldata->linkedlist, thread_id, true);
+    return 0;
 }
 
 void* socket_listen(void * arg)
@@ -72,31 +151,29 @@ int status;
         int errno_malloc = errno;
         syslog(LOG_ERR, "error in malloc. errno is %s", strerror(errno_malloc));
     }
-
+    // create an empty linked list
+    linked_list = malloc(sizeof(ll));
+    init_linked_list(linked_list);
+    pthread_t x;
+    pthread_create(&x,NULL,printing_content,(void *)&linked_list);
     while (true)
     {
         syslog(LOG_INFO, " ");
-        syslog(LOG_INFO, "new data ------------------------------------------");
+        syslog(LOG_INFO, "waiting to accept new connection ------------------------------------------");
         syslog(LOG_INFO, " ");
         int new_fd = accept(socket_fd,(struct sockaddr *)&their_addr, &addr_size);
-        // pthread_attr_t attributes;
         pthread_t thread_id;
-        int thread_ret = pthread_create(&thread_id,NULL,connection_handler,(void *)&new_fd);
+        thread_data_t thread_data={new_fd,their_addr,thread_id, false};
+        full_data_t full_set = {linked_list,thread_data};
+        int thread_ret = pthread_create(&thread_id,NULL,connection_handler,(void *)&full_set);
         if (thread_ret != 0 )
         {
             int errno_local = errno;// errro occured
             syslog(LOG_ERR,"failed to create a thread\nerrno = %i,\n<%s>",errno_local,strerror(errno_local));
         }
-        if (new_fd <0) 
+        else
         {
-            int listen_errno = errno;
-            fprintf(stderr, "accept() failed: %s (errno=%d)\n", strerror(listen_errno), listen_errno);
-        }
-        else 
-        {
-            inet_ntop(AF_INET, &their_addr, ip4, INET_ADDRSTRLEN);
-            printf("The IPv4 address is: %s\n", ip4);
-            syslog(LOG_INFO, "Accepted connection from %s", ip4);
+            print_linked_list_thread_id(linked_list);
         }
 
         while((read_ret = read(new_fd, buffer, BUFFER_SIZE)) >0)
@@ -106,14 +183,8 @@ int status;
             if (size <= (current_count + read_ret))
             {
                 syslog(LOG_INFO,"increased size from %li",size);
-                size = size * 3;
-                syslog(LOG_INFO,"attemping to allocate size %li",size);
-                syslog(LOG_INFO,"current count is  %li",current_count);
-
+                size = size * 2;
                 to_write = realloc(to_write,size);
-                int errno_local = errno;
-
-                syslog(LOG_ERR,"errno  =  %i",errno_local);
                 syslog(LOG_INFO,"to %li",size);
             }
             if (to_write == NULL)
@@ -135,7 +206,6 @@ int status;
         {
             syslog(LOG_ERR, "failed to reallocate memory");
         }
-        
         size_t  ret_send = send(new_fd,to_write,current_count,MSG_DONTWAIT);
         if (ret_send < 0 )
         {
