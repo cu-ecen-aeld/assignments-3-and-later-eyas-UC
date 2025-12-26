@@ -6,6 +6,10 @@
 #include <sys/syslog.h>
 extern pthread_mutex_t file_mutex;
 extern pthread_mutex_t timer_mutex;
+extern pthread_mutex_t reply_mutex;
+extern pthread_mutex_t thread_join_mutex;
+extern pthread_cond_t cv_join;
+
 void* printing_time()
 {
 
@@ -13,6 +17,9 @@ void* printing_time()
     pthread_cond_init(&cv, NULL);
     pthread_mutex_init(&timer_mutex, NULL);
     pthread_mutex_init(&file_mutex,NULL);
+    pthread_mutex_init(&reply_mutex,NULL);
+    pthread_cond_init(&cv_join, NULL);
+    
     struct timespec time_to_wait;
     char date[100];
     while(1)
@@ -51,7 +58,7 @@ int main(int argc, char *argv[])
     {
             syslog(LOG_INFO,"starting aesd socket server . . .\n");
             pthread_t thread_id;
-            pthread_create(&thread_id, NULL, printing_time, NULL);
+            // pthread_create(&thread_id, NULL, printing_time, NULL);
             socket_listen("");
     }
     exit(0);

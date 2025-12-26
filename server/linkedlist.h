@@ -48,6 +48,7 @@ void print_node(node* n);
 node * get_thread_data_by_fd(ll * linked_list, int fd);
 void print_thread_data(thread_data_t data);
 void remove_element_from_linked_list_no_mutex(ll * linked_list, pthread_t thread_id);
+node * get_thread_data_no_mutex(ll * linked_list, pthread_t thread_id);
 
 
 #endif

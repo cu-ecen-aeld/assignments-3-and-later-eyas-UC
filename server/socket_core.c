@@ -1,7 +1,10 @@
 #include "linkedlist.h"
 #include "signal_handler.h"
 // #include <sys/types.h>
+#include <bits/pthreadtypes.h>
 #include <pthread.h>
+#include <stddef.h>
+#include <stdlib.h>
 #include <time.h>
 #include <errno.h>
 #include <sched.h>
@@ -16,15 +19,18 @@
 
 extern int signal_caught;
 extern struct sigaction new_action;
-extern char * to_write;
+
 extern int socket_fd;
 extern char ip4[INET_ADDRSTRLEN];
 extern ll * linked_list;
 pthread_mutex_t timer_mutex;
 pthread_mutex_t file_mutex;
 pthread_mutex_t reply_mutex;
+pthread_mutex_t thread_join_mutex;
+pthread_cond_t cv_join;
 #define INIT_ALLOCATION BUFFER_SIZE
 #define END_CHAR '\n'
+extern char * to_write;
 
 void get_time(char * outstr)
 {
@@ -51,17 +57,12 @@ void * joining_thread_handler(void * passed_linkedlist)
     ll* linkedlist = (ll*) passed_linkedlist;
     while(1)
     {
-        const struct timespec sleep_request= {.tv_nsec=1000};
-        // struct timespec remainin= {.tv_nsec=1000};
-        nanosleep(&sleep_request,NULL);
-        sleep(1);
-        pthread_mutex_lock(&linkedlist->mutex);
+        pthread_cond_wait(&cv_join,&thread_join_mutex);
+        // pthread_mutex_lock(&linkedlist->mutex);
         node * it = linked_list->head;
         node * temp;
-        pthread_mutex_unlock(&linkedlist->mutex);
         while(it != NULL)
         {
-            pthread_mutex_lock(&linkedlist->mutex);
             if (it->data.completion == true)
             {
                 pthread_join(it->data.thread_id,NULL);
@@ -69,18 +70,25 @@ void * joining_thread_handler(void * passed_linkedlist)
                 it = it->next;
                 remove_element_from_linked_list_no_mutex(linkedlist, temp->data.thread_id);
             }
-            pthread_mutex_unlock(&linkedlist->mutex);
-
+            
         }
+        // pthread_mutex_unlock(&linkedlist->mutex);
     }
 }
 void* connection_handler(void *passed_fulldata)
 {
+    char buffer[BUFFER_SIZE]={0};
+    size_t size = INIT_ALLOCATION;
+    size_t  current_count=0;
+    size_t read_ret;
+    char * to_write_local = malloc(INIT_ALLOCATION);
     full_data_t* fulldata = (full_data_t*) passed_fulldata;
     pthread_t thread_id =  pthread_self();
     fulldata->thread_data.thread_id=thread_id;
     insert_element_to_linked_list(fulldata->linkedlist,fulldata->thread_data);
-    node * thread_data = get_thread_data(fulldata->linkedlist,thread_id);
+    pthread_mutex_lock(&linked_list->mutex);
+    node * thread_data = get_thread_data_no_mutex(fulldata->linkedlist,thread_id);
+    pthread_mutex_unlock(&linked_list->mutex);
     if (thread_data == NULL)
     {
         printf("could not find thread id\n");
@@ -98,7 +106,66 @@ void* connection_handler(void *passed_fulldata)
         printf("The IPv4 address is: %s\n", ip4);
         syslog(LOG_INFO, "Accepted connection from %s", ip4);
     }
+    // printf("strlen(to_write)=%lu and size = %li\n",strlen(to_write),size);
+
+    while((read_ret = read(thread_data->data.file_descriptor, buffer, BUFFER_SIZE)) >0)
+    {
+        // size doubling section
+        // **************************************************************//
+        if (size <= (current_count + read_ret))
+        {
+            syslog(LOG_INFO,"increased size from %li",size);
+            size = size * 2;
+            to_write_local = realloc(to_write_local,size);
+            syslog(LOG_INFO,"to %li\n",size);
+        }
+        if (to_write_local == NULL)
+        {
+            syslog(LOG_ERR, "failed to reallocate memory");
+        }
+        syslog(LOG_INFO, "received %s with length %li",buffer, read_ret);
+        memcpy(to_write_local + current_count , buffer,read_ret);
+        // printf("the length is %lu, read_ret=<%lu>\n",strlen(to_write_local),read_ret);
+        current_count += read_ret;
+        if ( read_ret < BUFFER_SIZE)
+        {
+            syslog(LOG_INFO, "exiting loop size smaller than buffer (message ended)!");
+            break;
+            //exit this while loop
+        }
+        
+    }
+    // add the to write buffer the to_write
+    pthread_mutex_lock(&reply_mutex);
+    if (strlen(to_write) < size)
+    {
+        size_t old_size = strlen(to_write);
+        to_write = realloc(to_write, size + old_size + 500);
+    }
+    strcat(to_write, to_write_local);
+    free(to_write_local);
+    size_t  ret_send = send(thread_data->data.file_descriptor,to_write,strlen(to_write),MSG_DONTWAIT);
+    // printf("%s",to_write);
+    pthread_mutex_unlock(&reply_mutex);
+    if (ret_send < 0 )
+    {
+        int read_errno = errno;
+        syslog(LOG_ERR, "send() failed: %s (errno=%d)\n", strerror(read_errno), read_errno);
+    }
+    else
+    {
+        // syslog(LOG_INFO, "send() passed with ret %li", ret_send);
+    }
+    close(thread_data->data.file_descriptor);
+    pthread_mutex_lock(&file_mutex);
+    int fd = open(TEMP_FILE_PATH, O_SYNC| O_RDWR  |O_CREAT | O_APPEND, S_IWUSR |S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
+    write(fd, to_write, strlen(to_write));
+    fsync(fd);
+    close(fd);
+    pthread_mutex_unlock(&file_mutex);
     set_thread_status(fulldata->linkedlist, thread_id, true);
+    pthread_cond_signal(&cv_join);
+    
     return 0;
 }
 
@@ -148,11 +215,8 @@ void* socket_listen(void * arg)
     socklen_t addr_size = sizeof(their_addr);
     syslog(LOG_INFO, "before accepting new connection");
     
-    size_t read_ret;
-    char buffer[BUFFER_SIZE]={0};
-    size_t size = INIT_ALLOCATION;
-    size_t  current_count=0;
-    to_write = malloc(size);
+    to_write = malloc(INIT_ALLOCATION);
+    memset(to_write,0 , INIT_ALLOCATION);
     if (to_write ==NULL)
     {
         int errno_malloc = errno;
@@ -179,56 +243,8 @@ void* socket_listen(void * arg)
             syslog(LOG_ERR,"failed to create a thread\nerrno = %i,\n<%s>",errno_local,strerror(errno_local));
         }
 
-        while((read_ret = read(new_fd, buffer, BUFFER_SIZE)) >0)
-        {
-            // size doubling section
-            // **************************************************************//
-            if (size <= (current_count + read_ret))
-            {
-                syslog(LOG_INFO,"increased size from %li",size);
-                size = size * 2;
-                to_write = realloc(to_write,size);
-                syslog(LOG_INFO,"to %li",size);
-            }
-            if (to_write == NULL)
-            {
-                syslog(LOG_ERR, "failed to reallocate memory");
-            }
-            syslog(LOG_INFO, "received %s with length %li",buffer, read_ret);
-            memcpy(to_write + current_count , buffer,read_ret);
-            current_count += read_ret;
-            if ( read_ret < BUFFER_SIZE)
-            {
-                syslog(LOG_INFO, "exiting loop size smaller than buffer (message ended)!");
-                break;
-                //exit this while loop
-            }
-            
-        }
-        if (to_write == NULL)
-        {
-            syslog(LOG_ERR, "failed to reallocate memory");
-        }
-        size_t  ret_send = send(new_fd,to_write,current_count,MSG_DONTWAIT);
-        if (ret_send < 0 )
-        {
-            int read_errno = errno;
-            syslog(LOG_ERR, "send() failed: %s (errno=%d)\n", strerror(read_errno), read_errno);
-        }
-        else
-        {
-            syslog(LOG_INFO, "send() passed with ret %li", ret_send);
-        }
-        close(new_fd);
-        pthread_mutex_lock(&file_mutex);
-        int fd = open(TEMP_FILE_PATH, O_SYNC| O_RDWR  |O_CREAT | O_APPEND, S_IWUSR |S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
-        write(fd, to_write, current_count);
-        fsync(fd);
-        close(fd);
-        pthread_mutex_unlock(&file_mutex);
         
     }
-    syslog(LOG_ERR, "error in read: code = <%li>", read_ret);
    
     return 0;    
 }

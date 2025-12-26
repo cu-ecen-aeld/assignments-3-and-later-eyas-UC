@@ -18,11 +18,11 @@ void insert_element_to_linked_list(ll *linked_list, thread_data_t data)
     // insert at the head.
     node * new_head = malloc(sizeof(node));
     new_head->data=data;
-    node * old_head = linked_list->head;
     if (pthread_mutex_lock(&linked_list->mutex))
     {
         printf("error locking mutex");
     }
+    node * old_head = linked_list->head;
     linked_list->head = new_head;
     linked_list->head->next = old_head;
     if(pthread_mutex_unlock(&linked_list->mutex))
@@ -140,16 +140,15 @@ void print_thread_data(thread_data_t data)
 }
 void set_thread_status(ll * linked_list, pthread_t thread_id, bool status)
 {
+    if (pthread_mutex_lock(&linked_list->mutex))
+    {
+        printf("error locking mutex");
+    }
     node * temp =linked_list->head;
     while (temp != NULL)
     {
         if (temp->data.thread_id == thread_id)
         {
-            // in-place remove this element
-            if (pthread_mutex_lock(&linked_list->mutex))
-            {
-                printf("error locking mutex");
-            }
             temp->data.completion=status;
             if(pthread_mutex_unlock(&linked_list->mutex))
             {
@@ -162,6 +161,10 @@ void set_thread_status(ll * linked_list, pthread_t thread_id, bool status)
             // itarate to the next element
             temp = temp->next;
         }
+    }
+    if(pthread_mutex_unlock(&linked_list->mutex))
+    {
+        printf("error unlocking mutex");
     }
 }
 
@@ -185,6 +188,29 @@ node * get_thread_data(ll * linked_list, pthread_t thread_id)
             {
                 printf("error unlocking mutex");
             }
+            return  return_data;
+        }
+        else 
+        {
+            // itarate to the next element
+            temp = temp->next;
+        }
+    }
+    return NULL;
+}
+
+
+node * get_thread_data_no_mutex(ll * linked_list, pthread_t thread_id)
+{
+    node * temp =linked_list->head;
+    while (temp != NULL)
+    {
+        if (temp->data.thread_id == thread_id)
+        {
+            // in-place remove this element
+            node * return_data = malloc(sizeof(node));
+            return_data->next = NULL;
+            return_data->data = temp->data;
             return  return_data;
         }
         else 
