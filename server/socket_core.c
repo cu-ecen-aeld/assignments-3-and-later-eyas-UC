@@ -1,6 +1,8 @@
 #include "linkedlist.h"
 #include "signal_handler.h"
 // #include <sys/types.h>
+#include <pthread.h>
+#include <time.h>
 #include <errno.h>
 #include <sched.h>
 #include <stdbool.h>
@@ -18,6 +20,7 @@ extern char * to_write;
 extern int socket_fd;
 extern char ip4[INET_ADDRSTRLEN];
 extern ll * linked_list;
+pthread_mutex_t timer_mutex;
 pthread_mutex_t file_mutex;
 pthread_mutex_t reply_mutex;
 #define INIT_ALLOCATION BUFFER_SIZE
@@ -35,49 +38,76 @@ void get_time(char * outstr)
         perror("localtime");
     }
 
-    if (strftime(outstr, 200, "%a, %d %b %Y %T %z", tmp) == 0)
+    if (strftime(outstr, 200, "timestamp:%a, %d %b %Y %T %z\n", tmp) == 0)
     {
         fprintf(stderr, "strftime returned 0");
     }
-
-    printf("Result string is <%s>\n", outstr);
 }
-void* printing_content(void * passed_linkedlist)
+
+void* printing_time(void * passed_linkedlist)
+{
+
+    pthread_cond_t cv;
+    pthread_cond_init(&cv, NULL);
+    pthread_mutex_init(&timer_mutex, NULL);
+    struct timespec time_to_wait;
+    char date[100];
+    (void) passed_linkedlist;
+    while(1)
+    {
+        get_time(date);
+        clock_gettime(CLOCK_REALTIME, &time_to_wait);
+        time_to_wait.tv_sec = time_to_wait.tv_sec + 10;
+        pthread_cond_timedwait(&cv, &timer_mutex, &time_to_wait);
+        pthread_mutex_lock(&file_mutex);
+        int fd = open(TEMP_FILE_PATH, O_SYNC| O_RDWR  |O_CREAT | O_APPEND, S_IWUSR |S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
+        write(fd, date, strlen(date));
+        fsync(fd);
+        close(fd);        
+        pthread_mutex_unlock(&file_mutex);
+    }
+}
+
+
+void * joining_thread_handler(void * passed_linkedlist)
 {
     ll* linkedlist = (ll*) passed_linkedlist;
     while(1)
     {
+        const struct timespec sleep_request= {.tv_nsec=1000};
+        // struct timespec remainin= {.tv_nsec=1000};
+        nanosleep(&sleep_request,NULL);
         sleep(1);
-        node * temp = linkedlist->head;
-        while(temp != NULL)
+        pthread_mutex_lock(&linkedlist->mutex);
+        node * it = linked_list->head;
+        node * temp;
+        pthread_mutex_unlock(&linkedlist->mutex);
+        while(it != NULL)
         {
-            print_node(temp);
-            temp = temp->next;
+            pthread_mutex_lock(&linkedlist->mutex);
+            if (it->data.completion == true)
+            {
+                pthread_join(it->data.thread_id,NULL);
+                temp = it;
+                it = it->next;
+                remove_element_from_linked_list_no_mutex(linkedlist, temp->data.thread_id);
+            }
+            pthread_mutex_unlock(&linkedlist->mutex);
+
         }
     }
-
 }
 void* connection_handler(void *passed_fulldata)
 {
-    char    time_str[200];
-    get_time(time_str);
     full_data_t* fulldata = (full_data_t*) passed_fulldata;
-    // pid_t  tid = gettid();
     pthread_t thread_id =  pthread_self();
     fulldata->thread_data.thread_id=thread_id;
-    print_thread_data(fulldata->thread_data);
     insert_element_to_linked_list(fulldata->linkedlist,fulldata->thread_data);
     node * thread_data = get_thread_data(fulldata->linkedlist,thread_id);
     if (thread_data == NULL)
     {
         printf("could not find thread id\n");
         return NULL;
-    }
-    else
-    {
-        print_node(thread_data);
-        printf("fd = <%i>",thread_data->data.file_descriptor);
-        printf("inside the created thread <%lu>",thread_id);
     }
 
     if (thread_data->data.file_descriptor < 0) 
@@ -155,7 +185,9 @@ int status;
     linked_list = malloc(sizeof(ll));
     init_linked_list(linked_list);
     pthread_t x;
-    pthread_create(&x,NULL,printing_content,(void *)&linked_list);
+    pthread_t y;
+    pthread_create(&x,NULL,printing_time,(void *)linked_list);
+    pthread_create(&y,NULL,joining_thread_handler,(void *)linked_list);
     while (true)
     {
         syslog(LOG_INFO, " ");
@@ -170,10 +202,6 @@ int status;
         {
             int errno_local = errno;// errro occured
             syslog(LOG_ERR,"failed to create a thread\nerrno = %i,\n<%s>",errno_local,strerror(errno_local));
-        }
-        else
-        {
-            print_linked_list_thread_id(linked_list);
         }
 
         while((read_ret = read(new_fd, buffer, BUFFER_SIZE)) >0)
@@ -217,10 +245,12 @@ int status;
             syslog(LOG_INFO, "send() passed with ret %li", ret_send);
         }
         close(new_fd);
+        pthread_mutex_lock(&file_mutex);
         int fd = open(TEMP_FILE_PATH, O_SYNC| O_RDWR  |O_CREAT | O_APPEND, S_IWUSR |S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
         write(fd, to_write, current_count);
         fsync(fd);
         close(fd);
+        pthread_mutex_unlock(&file_mutex);
         
     }
     syslog(LOG_ERR, "error in read: code = <%li>", read_ret);

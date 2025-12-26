@@ -69,6 +69,35 @@ void remove_element_from_linked_list(ll * linked_list, pthread_t thread_id)
     }
 }
 
+void remove_element_from_linked_list_no_mutex(ll * linked_list, pthread_t thread_id)
+{
+    node * temp =linked_list->head;
+    node * prev = temp;
+    while (temp != NULL)
+    {
+        if (temp->data.thread_id == thread_id)
+        {
+            // in-place remove this element
+            if (prev  == temp)
+            {
+                linked_list->head = temp->next;
+            }
+            else 
+            {
+                prev->next = temp->next;
+            }
+            free(temp);
+            return;
+        }
+        else 
+        {
+            // itarate to the next element
+            prev = temp;
+            temp = temp->next;
+        }
+    }
+}
+
 void free_linked_list(ll * linkedlist)
 {
     node * it = linkedlist->head;
@@ -84,22 +113,27 @@ void free_linked_list(ll * linkedlist)
 void print_linked_list_thread_id(ll * linkedlist)
 {
 
+    pthread_mutex_lock(&linkedlist->mutex);
     node * it = linkedlist->head;
     while (it != NULL)
     {
         printf("thread id is <%lu>, fd is <%i>\n",it->data.thread_id, it->data.file_descriptor);
         it = it->next;
     }
+    pthread_mutex_unlock(&linkedlist->mutex);
 }
 
 void print_node(node* n)
 {
     if (n ==NULL)
     {
-        printf("NULL node");
+        printf("NULL node!!!!!!!!!!!!!!!!!!!!!!!!!\n");
         return;
     }
+    printf("-------------------------------------------------------------------------------------------\n");
+    printf("--------------------------------N O D E    I N F O R M A T I O N---------------------------\n");
     printf("status=<%s>,fd=<%i>, thread_id=<%li>\n",n->data.completion?"completed":"not finished",n->data.file_descriptor,n->data.thread_id);
+    printf("-------------------------------------------------------------------------------------------\n");
 }
 void print_thread_data(thread_data_t data)
 {
