@@ -127,7 +127,9 @@ void* connection_handler(void *passed_fulldata)
 
 void* socket_listen(void * arg)
 {
-int status;
+    pthread_t x;
+    pthread_create(&x,NULL,printing_time,(void *)NULL);
+    int status;
     struct addrinfo hints;
     struct addrinfo *result;  // will point to the results
     memset(&hints, 0, sizeof hints); // make sure the struct is empty
@@ -184,9 +186,7 @@ int status;
     // create an empty linked list
     linked_list = malloc(sizeof(ll));
     init_linked_list(linked_list);
-    pthread_t x;
     pthread_t y;
-    pthread_create(&x,NULL,printing_time,(void *)linked_list);
     pthread_create(&y,NULL,joining_thread_handler,(void *)linked_list);
     while (true)
     {
