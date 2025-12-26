@@ -44,29 +44,6 @@ void get_time(char * outstr)
     }
 }
 
-void* printing_time(void * passed_linkedlist)
-{
-
-    pthread_cond_t cv;
-    pthread_cond_init(&cv, NULL);
-    pthread_mutex_init(&timer_mutex, NULL);
-    struct timespec time_to_wait;
-    char date[100];
-    (void) passed_linkedlist;
-    while(1)
-    {
-        get_time(date);
-        clock_gettime(CLOCK_REALTIME, &time_to_wait);
-        time_to_wait.tv_sec = time_to_wait.tv_sec + 10;
-        pthread_cond_timedwait(&cv, &timer_mutex, &time_to_wait);
-        pthread_mutex_lock(&file_mutex);
-        int fd = open(TEMP_FILE_PATH, O_SYNC| O_RDWR  |O_CREAT | O_APPEND, S_IWUSR |S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
-        write(fd, date, strlen(date));
-        fsync(fd);
-        close(fd);        
-        pthread_mutex_unlock(&file_mutex);
-    }
-}
 
 
 void * joining_thread_handler(void * passed_linkedlist)
@@ -127,8 +104,6 @@ void* connection_handler(void *passed_fulldata)
 
 void* socket_listen(void * arg)
 {
-    pthread_t x;
-    pthread_create(&x,NULL,printing_time,(void *)NULL);
     int status;
     struct addrinfo hints;
     struct addrinfo *result;  // will point to the results
@@ -174,7 +149,7 @@ void* socket_listen(void * arg)
     syslog(LOG_INFO, "before accepting new connection");
     
     size_t read_ret;
-    char buffer[BUFFER_SIZE];
+    char buffer[BUFFER_SIZE]={0};
     size_t size = INIT_ALLOCATION;
     size_t  current_count=0;
     to_write = malloc(size);

@@ -9,7 +9,6 @@
 void init_linked_list(ll * linked_list)
 {
     pthread_mutex_init(&linked_list->mutex,NULL);
-    linked_list->head->next = NULL;
     linked_list->head = NULL;
 }
 // creates a node and inserts data to it.
