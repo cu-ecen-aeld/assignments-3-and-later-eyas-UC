@@ -30,6 +30,18 @@ void insert_element_to_linked_list(ll *linked_list, thread_data_t data)
         printf("error unlocking mutex");
     }
 }
+
+
+void insert_element_to_linked_list_no_mutex(ll *linked_list, thread_data_t data)
+{
+
+    // insert at the head.
+    node * new_head = malloc(sizeof(node));
+    new_head->data=data;
+    node * old_head = linked_list->head;
+    linked_list->head = new_head;
+    linked_list->head->next = old_head;
+}
 // removes an element from the linked list
 void remove_element_from_linked_list(ll * linked_list, pthread_t thread_id)
 {
@@ -107,6 +119,7 @@ void free_linked_list(ll * linkedlist)
         free(it);
         it = temp;
     }
+    free(linkedlist);
 }
 
 void print_linked_list_thread_id(ll * linkedlist)
@@ -138,6 +151,7 @@ void print_thread_data(thread_data_t data)
 {
     printf("status=<%s>,fd=<%i>, thread_id=<%li>\n",data.completion?"completed":"not finished",data.file_descriptor, data.thread_id);
 }
+
 void set_thread_status(ll * linked_list, pthread_t thread_id, bool status)
 {
     if (pthread_mutex_lock(&linked_list->mutex))
@@ -165,6 +179,26 @@ void set_thread_status(ll * linked_list, pthread_t thread_id, bool status)
     if(pthread_mutex_unlock(&linked_list->mutex))
     {
         printf("error unlocking mutex");
+    }
+}
+
+
+void set_thread_status_no_mutex(ll * linked_list, pthread_t thread_id, bool status)
+{
+
+    node * temp =linked_list->head;
+    while (temp != NULL)
+    {
+        if (temp->data.thread_id == thread_id)
+        {
+            temp->data.completion=status;
+            return;
+        }
+        else 
+        {
+            // itarate to the next element
+            temp = temp->next;
+        }
     }
 }
 
