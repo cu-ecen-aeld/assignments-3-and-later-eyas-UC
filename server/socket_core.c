@@ -134,8 +134,6 @@ void *connection_handler(void *passed_fulldata)
 		}
 		// syslog(LOG_INFO, "received %s with length %i", buffer, read_ret);
 		memcpy(to_write_local + current_count, buffer, read_ret);
-		// printf("the length is %lu,
-		// read_ret=<%lu>\n",strlen(to_write_local),read_ret);
 		current_count += read_ret;
 		if(read_ret < BUFFER_SIZE)
 		{
@@ -154,7 +152,6 @@ void *connection_handler(void *passed_fulldata)
 	strcat(to_write, to_write_local);
 	free(to_write_local);
 	size_t ret_send = send(fulldata->thread_data.file_descriptor, to_write, strlen(to_write), MSG_DONTWAIT);
-	// printf("%s",to_write);
 	pthread_mutex_unlock(&reply_mutex);
 	if(ret_send < 0)
 	{
@@ -163,19 +160,15 @@ void *connection_handler(void *passed_fulldata)
 	}
 	else
 	{
-		// syslog(LOG_INFO, "send() passed with ret %li", ret_send);
+		syslog(LOG_INFO, "send() passed with ret %li", ret_send);
 	}
 	close(fulldata->thread_data.file_descriptor);
-	// free(thread_data);
 	pthread_mutex_lock(&file_mutex);
 	int temp_file_fd
 		= open(TEMP_FILE_PATH, O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
-		// = open(TEMP_FILE_PATH, O_SYNC | O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
 	write(temp_file_fd, to_write, strlen(to_write));
-	// fsync(temp_file_fd); 
-	// close(temp_file_fd);
 	pthread_mutex_unlock(&file_mutex);
-	
+
 	pthread_mutex_lock(&fulldata->linkedlist->mutex);
 	insert_element_to_linked_list_no_mutex(fulldata->linkedlist, fulldata->thread_data);
 	set_thread_status_no_mutex(fulldata->linkedlist, thread_id, true);
