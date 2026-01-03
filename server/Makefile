@@ -7,9 +7,12 @@ TARGET = aesdsocket
 SRCS = aesdsocket.c
 SRCS += signal_handler.c
 SRCS += socket_core.c
+SRCS += linkedlist.c
 
 HEADERS = signal_handler.h 
 HEADERS += socket_core.h 
+HEADERS += queue.h
+HEADERS += linkedlist.h
 OBJS = $(SRCS:.c=.o)
 BUILD_COMMAND=$(CROSS_COMPILE)$(CC) $(CFLAGS) 
 

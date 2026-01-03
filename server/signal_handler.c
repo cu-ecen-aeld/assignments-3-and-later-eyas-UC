@@ -1,11 +1,13 @@
 #include "signal_handler.h"
+#include "linkedlist.h"
 
 int signal_caught = false;
 struct sigaction new_action;
 int socket_fd;
 char * to_write;
-char ip4[INET_ADDRSTRLEN]; 
-
+char ip4[INET_ADDRSTRLEN];
+ll * linked_list;
+int temp_file_fd;
 
 
 void signal_handler(const int signal_no)
@@ -19,7 +21,9 @@ void signal_handler(const int signal_no)
         syslog(LOG_ERR, "failed to remove %s",TEMP_FILE_PATH);
     }
     free(to_write);
+    free_linked_list(linked_list);
     close(socket_fd);
+    close(temp_file_fd);
     exit(0);
 }
 
