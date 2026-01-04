@@ -1,9 +1,10 @@
 # socket server
 
 # define variables 
-CC = gcc
-CFLAGS = -Wall -g
-TARGET = aesdsocket
+CC ?= $(CROSS_COMPILE)gcc
+CFLAGS ?= -Wall -g
+TARGET ?= aesdsocket
+LDFLAGS?= -lpthread -lrt
 SRCS = aesdsocket.c
 SRCS += signal_handler.c
 SRCS += socket_core.c
@@ -14,7 +15,7 @@ HEADERS += socket_core.h
 HEADERS += queue.h
 HEADERS += linkedlist.h
 OBJS = $(SRCS:.c=.o)
-BUILD_COMMAND=$(CROSS_COMPILE)$(CC) $(CFLAGS) 
+BUILD_COMMAND=$(CC) $(CFLAGS) $(LDFLAGS) 
 
 # the default target 
 all: $(TARGET)
