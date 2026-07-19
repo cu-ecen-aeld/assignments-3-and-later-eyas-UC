@@ -35,7 +35,8 @@ struct aesd_dev
 //     /* not sure if quantum and quantum set are applicable here .... I think so in case reading or writing big data that needs to be handled */
 //     int quantum;
 //     int qset;
-    unsigned int size;
+     // size will contain the size of the last element in the circular buffer
+     unsigned int size;
 
 };
 

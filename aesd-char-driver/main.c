@@ -27,17 +27,20 @@ MODULE_LICENSE("Dual BSD/GPL");
 
 struct aesd_dev aesd_device;
 
-
+int aesd_trim(struct aesd_dev * dev);
 int aesd_trim(struct aesd_dev * dev)
 {
     for (int i = 0; i < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++)
     {
-        if (dev->c_buffer->entry[i] != NULL)
+        if (dev->c_buffer->entry[i].buffptr != NULL)
         {
-            kfree(dev->c_buffer->entry[i]);
-            dev->c_buffer->entry[i] = NULL;
+            kfree(dev->c_buffer->entry[i].buffptr);
+            dev->c_buffer->entry[i].buffptr = NULL;
+            dev->c_buffer->entry[i].size = 0;
+
         }
     }
+    // kfree(dev);
     return 0;
 }
 
@@ -48,7 +51,7 @@ int aesd_open(struct inode *inode, struct file *filp)
     /**
      * TODO: handle open
      */
-	struct scull_dev *dev; /* device information */
+	struct aesd_dev *dev; /* device information */
     dev = container_of(inode->i_cdev, struct aesd_dev, cdev);
     filp->private_data = dev;
 
@@ -58,7 +61,7 @@ int aesd_open(struct inode *inode, struct file *filp)
         if (mutex_lock_interruptible(&dev->lock))
             return -ERESTARTSYS;
         aesd_trim(dev); /* trim file to size 0*/
-        mutex_unlock(dev->lock);
+        mutex_unlock(&dev->lock);
     }
 
     return 0;
@@ -81,6 +84,23 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     /**
      * TODO: handle read
      */
+    struct aesd_dev * dev = filp->private_data; // this is stored when open function is called
+    // to read you need to lock the mutex first
+    if (mutex_lock_interruptible(&dev->lock))
+        return -ERESTARTSYS;
+    const int last_element = dev->c_buffer->out_offs;
+    if (count > dev->size)
+    {
+        // limit the count to the available data;
+        // count = dev->c_buffer->entry[last_element].size;
+        count = dev->size;
+    }
+    if (*f_pos + count > dev->size)
+    {
+        count = dev->size - *f_pos;
+    }
+
+
     return retval;
 }
 
@@ -109,14 +129,35 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     char * allocated_memory = kmalloc(count, GFP_KERNEL);
     if (allocated_memory == NULL)
     {
-        printk(KERN_ERR "allocating memory went wrong!")
+        mutex_unlock(&dev->lock);
+        printk(KERN_ERR "allocating memory went wrong!");
+        return -ENOMEM;
     }
-    copy_from_user(allocated_memory, buf, count);
+    int not_copied_bytes = copy_from_user(allocated_memory, buf, count);
+    if (not_copied_bytes != 0)
+    {
+        kfree(allocated_memory);
+        mutex_unlock(&dev->lock);
+        return -EFAULT;
+    }
+    const char END_CHARACTER = '\n';
+    if (allocated_memory[count] != END_CHARACTER)
+    {
+        // 
+    }
+
+    // if (dev->c_buffer->)
     struct aesd_buffer_entry entry;
     entry.buffptr = allocated_memory;
-    entry.size = sizeof(allocated_memory);
-    aesd_circular_buffer_add_entry(aesd_device.c_buffer, )
-
+    entry.size = count;
+    struct aesd_buffer_entry to_be_freed = aesd_circular_buffer_add_entry(dev->c_buffer, &entry);
+    if (to_be_freed != NULL)
+    {
+        kfree(to_be_freed);
+    }
+    // to be used when reading data in order not to go out of bound.
+    dev->size = count;
+    mutex_unlock(&dev->lock);
 
 
     return retval;
@@ -157,12 +198,15 @@ int aesd_init_module(void)
         printk(KERN_WARNING "Can't get major %d\n", aesd_major);
         return result;
     }
-    // shouldn't I kmalloc first before setting it to 0
-    aesd_device = kmalloc(sizeof(struct aesd_dev), GFP_KERNEL)
-    if (aesd_device == NULL)
-    {
-        unregister_chrdev_region(dev, 1);
-    }
+    // // shouldn't I kmalloc first before setting it to 0 
+    // no because it is not a pointer
+
+
+    // aesd_device = kmalloc(sizeof(struct aesd_dev), GFP_KERNEL)
+    // if (aesd_device == NULL)
+    // {
+    //     unregister_chrdev_region(dev, 1);
+    // }
     memset(&aesd_device,0,sizeof(struct aesd_dev));
 
     /**
@@ -171,10 +215,10 @@ int aesd_init_module(void)
 
     /* assuming that I have only one driver and not 4 like in the scull example. I will start by */
     /* setup the mutex by calling mutex init*/
-    mutex_init(aesd_device.lock); // should set the mutex to 1 ( allow decrement and access at the beginning )
+    mutex_init(&aesd_device.lock); // should set the mutex to 1 ( allow decrement and access at the beginning )
     /* setup the circular buffer */
-    aesd_device->c_buffer = kmalloc(sizeof(aesd_circular_buffer), GFP_KERNEL);
-    if (aesd_device->c_buffresulter == NULL)
+    aesd_device.c_buffer = kmalloc(sizeof(struct aesd_circular_buffer), GFP_KERNEL);
+    if (aesd_device.c_buffer == NULL)
     {
         unregister_chrdev_region(dev, 1);  
     }
@@ -199,10 +243,10 @@ void aesd_cleanup_module(void)
      * TODO: cleanup AESD specific poritions here as necessary
      */
     unregister_chrdev_region(devno, 1);
-    if (mutex_lock_interruptible(aesd_device.lock))
-        return -ERESTARTSYS;
+    if (mutex_lock_interruptible(&aesd_device.lock))
+        return;
     aesd_trim(&aesd_device); /* trim file to size 0*/
-    mutex_unlock(aesd_device.lock);
+    mutex_unlock(&aesd_device.lock);
 }
 
 
