@@ -4,7 +4,7 @@
  *  Created on: Oct 23, 2019
  *      Author: Dan Walkes
  */
-
+#include "aesd-circular-buffer.h"
 #ifndef AESD_CHAR_DRIVER_AESDCHAR_H_
 #define AESD_CHAR_DRIVER_AESDCHAR_H_
 
@@ -29,6 +29,14 @@ struct aesd_dev
      * TODO: Add structure(s) and locks needed to complete assignment requirements
      */
     struct cdev cdev;     /* Char device structure      */
+    struct mutex lock;
+    /* here I should also add my circular buffer aka my data*/
+    struct aesd_circular_buffer * c_buffer;
+//     /* not sure if quantum and quantum set are applicable here .... I think so in case reading or writing big data that needs to be handled */
+//     int quantum;
+//     int qset;
+    unsigned int size;
+
 };
 
 

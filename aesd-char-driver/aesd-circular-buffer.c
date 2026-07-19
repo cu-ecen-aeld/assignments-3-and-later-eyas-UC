@@ -8,12 +8,14 @@
  *
  */
 
-#include <stddef.h>
-#include <stdio.h>
+
 #ifdef __KERNEL__
+#include <linux/stddef.h>
 #include <linux/string.h>
 #else
 #include <string.h>
+#include <stdio.h>
+
 #endif
 
 #include "aesd-circular-buffer.h"
