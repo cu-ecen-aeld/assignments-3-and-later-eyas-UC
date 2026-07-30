@@ -14,6 +14,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/printk.h>
+#include <linux/uaccess.h>
 #include <linux/types.h>
 #include <linux/cdev.h>
 #include "aesd-circular-buffer.h"
@@ -26,6 +27,7 @@ MODULE_AUTHOR("Eyas"); /** TODO: fill in your name **/
 MODULE_LICENSE("Dual BSD/GPL");
 
 struct aesd_dev aesd_device;
+#define END_CHARACTER '\n'
 
 int aesd_trim(struct aesd_dev * dev);
 int aesd_trim(struct aesd_dev * dev)
@@ -40,7 +42,9 @@ int aesd_trim(struct aesd_dev * dev)
 
         }
     }
-    // kfree(dev);
+    dev->c_buffer->full = false;
+    dev->c_buffer->in_offs = 0;
+    dev->c_buffer->out_offs = 0;
     return 0;
 }
 
@@ -60,7 +64,7 @@ int aesd_open(struct inode *inode, struct file *filp)
     {
         if (mutex_lock_interruptible(&dev->lock))
             return -ERESTARTSYS;
-        aesd_trim(dev); /* trim file to size 0*/
+        // aesd_trim(dev); /* trim file to size 0*/
         mutex_unlock(&dev->lock);
     }
 
@@ -88,26 +92,39 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     // to read you need to lock the mutex first
     if (mutex_lock_interruptible(&dev->lock))
         return -ERESTARTSYS;
-    const int last_element = dev->c_buffer->out_offs;
-    if (count > dev->size)
+    size_t entry_offset = 0;
+    struct aesd_buffer_entry * found_entry = aesd_circular_buffer_find_entry_offset_for_fpos(dev->c_buffer, *f_pos ,&entry_offset);
+    if (found_entry == NULL)
     {
-        // limit the count to the available data;
-        // count = dev->c_buffer->entry[last_element].size;
-        count = dev->size;
+        // nothing to be read offset maybe too high
+        mutex_unlock(&dev->lock);
+        return 0;
     }
-    if (*f_pos + count > dev->size)
+    const int first_addres = dev->c_buffer->out_offs;
+    // found the starting point for the data to be returned
+    if (count + entry_offset >= found_entry->size)
     {
-        count = dev->size - *f_pos;
+        count = found_entry->size - entry_offset;
     }
+    // copy to user only the count - entry_offset
+    int const remaining_bytes = copy_to_user(buf, found_entry->buffptr + entry_offset, count);
+    if (remaining_bytes != 0)
+    {
+        mutex_unlock(&dev->lock);
+        return -EFAULT;
+    }
+    /* update file position after read is successful*/
+    *f_pos = +count;
+    retval = count;
 
-
+    mutex_unlock(&dev->lock);
     return retval;
 }
 
 ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 loff_t *f_pos)
 {
-    ssize_t retval = -ENOMEM;
+    ssize_t retval = 0;
     PDEBUG("write %zu bytes with offset %lld",count,*f_pos);
     /**
      * TODO: handle write
@@ -140,30 +157,58 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         mutex_unlock(&dev->lock);
         return -EFAULT;
     }
-    const char END_CHARACTER = '\n';
-    if (allocated_memory[count] != END_CHARACTER)
+    if (dev->partial_buffer.size == 0U)
     {
-        // 
+        // we got an empty partial_buffer
+        dev->partial_buffer.buffptr = kmalloc(count, GFP_KERNEL);
+        memcpy(dev->partial_buffer.buffptr, allocated_memory,count);
+        dev->partial_buffer.size = count;
+        if (dev->partial_buffer.buffptr[dev->partial_buffer.size - 1] == END_CHARACTER)
+        {
+            struct aesd_buffer_entry * old_entry;
+            if (NULL != (old_entry=aesd_circular_buffer_add_entry(dev->c_buffer, &dev->partial_buffer)))
+            {
+                // need to free the overwritten entry
+                   kfree(old_entry);
+            }
+        }
     }
+    else
+    {
+        // append the the new data
+        char * new_bigger_data = kmalloc(count + dev->partial_buffer.size, GFP_KERNEL);
+        if (new_bigger_data == NULL)
+        {
+            kfree(allocated_memory);
+            mutex_unlock(&dev->lock);
+            return -EFAULT;
+        }
+        /* move previous partial data to the new bigger allocated memory */
+        memcpy(new_bigger_data, dev->partial_buffer.buffptr, dev->partial_buffer.size);
+        /* append the data by copying to the new allocated memory with an offset of size of partial buffer */
+        memcpy(new_bigger_data + dev->partial_buffer.size, allocated_memory, count);
+        dev->partial_buffer.size = dev->partial_buffer.size + count;
+        /* free the old data */
+        kfree(dev->partial_buffer.buffptr);
+        /* point the partial buffer to the new bigger data */
+        dev->partial_buffer.buffptr = new_bigger_data;
+        /* does the data has an end character */
 
-    // if (dev->c_buffer->)
-    struct aesd_buffer_entry entry;
-    entry.buffptr = allocated_memory;
-    entry.size = count;
-    struct aesd_buffer_entry to_be_freed = aesd_circular_buffer_add_entry(dev->c_buffer, &entry);
-    if (to_be_freed != NULL)
-    {
-        kfree(to_be_freed);
+        if (dev->partial_buffer.buffptr[dev->partial_buffer.size - 1] == END_CHARACTER)
+        {
+            /* Add the ready data and reset the partial buffer */
+            aesd_circular_buffer_add_entry(dev->c_buffer, &dev->partial_buffer);
+            dev->partial_buffer.buffptr = NULL;
+            dev->partial_buffer.size = 0U;
+        }
     }
-    // to be used when reading data in order not to go out of bound.
-    dev->size = count;
+    kfree(allocated_memory);
     mutex_unlock(&dev->lock);
-
-
     return retval;
 }
 // file ops goes under struct file
-struct file_operations aesd_fops = {
+struct file_operations aesd_fops = 
+{
     .owner =    THIS_MODULE,
     .read =     aesd_read,
     .write =    aesd_write,
@@ -198,15 +243,7 @@ int aesd_init_module(void)
         printk(KERN_WARNING "Can't get major %d\n", aesd_major);
         return result;
     }
-    // // shouldn't I kmalloc first before setting it to 0 
-    // no because it is not a pointer
 
-
-    // aesd_device = kmalloc(sizeof(struct aesd_dev), GFP_KERNEL)
-    // if (aesd_device == NULL)
-    // {
-    //     unregister_chrdev_region(dev, 1);
-    // }
     memset(&aesd_device,0,sizeof(struct aesd_dev));
 
     /**
@@ -220,7 +257,9 @@ int aesd_init_module(void)
     aesd_device.c_buffer = kmalloc(sizeof(struct aesd_circular_buffer), GFP_KERNEL);
     if (aesd_device.c_buffer == NULL)
     {
-        unregister_chrdev_region(dev, 1);  
+        unregister_chrdev_region(dev, 1);
+        printk(KERN_ERR "Failed to allocate memory");
+        return -ENOMEM;
     }
     aesd_circular_buffer_init(aesd_device.c_buffer);
 
@@ -243,9 +282,11 @@ void aesd_cleanup_module(void)
      * TODO: cleanup AESD specific poritions here as necessary
      */
     unregister_chrdev_region(devno, 1);
-    if (mutex_lock_interruptible(&aesd_device.lock))
-        return;
+    mutex_lock(&aesd_device.lock);
+
     aesd_trim(&aesd_device); /* trim file to size 0*/
+    kfree(aesd_device.partial_buffer.buffptr);
+    kfree(aesd_device.c_buffer);
     mutex_unlock(&aesd_device.lock);
 }
 

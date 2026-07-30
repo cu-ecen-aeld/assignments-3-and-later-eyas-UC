@@ -41,7 +41,7 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 
     // buffer->in_offs can never be greater than buffer->out_offs
     // the start is always from buffer->offs to buffer->in_offs
-    // iff in ==out then buffer then check the full to loop through everything otherwise return null;
+    // if in == out then buffer then check the full to loop through everything otherwise return null;
     if (buffer->full == true && (buffer->in_offs == buffer->out_offs))
     {
     }
@@ -81,7 +81,7 @@ struct aesd_buffer_entry * aesd_circular_buffer_add_entry(struct aesd_circular_b
     * TODO: implement per description
     */
     // case where buffer is full, so we need to move the out_offs to the next entry to be overwritten
-    struct aesd_buffer_entry * overwritten_entry;
+    struct aesd_buffer_entry * overwritten_entry = NULL;
     if (buffer->full)
     {
         // this will essentially resets to 0 when LHS buffer->out_offs = 9 where 
@@ -99,6 +99,7 @@ struct aesd_buffer_entry * aesd_circular_buffer_add_entry(struct aesd_circular_b
     {
         buffer->full = true;
     }
+    return overwritten_entry;
 }
 
 /**

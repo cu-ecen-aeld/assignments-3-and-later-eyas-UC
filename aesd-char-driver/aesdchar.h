@@ -32,6 +32,7 @@ struct aesd_dev
     struct mutex lock;
     /* here I should also add my circular buffer aka my data*/
     struct aesd_circular_buffer * c_buffer;
+    struct aesd_buffer_entry partial_buffer;
 //     /* not sure if quantum and quantum set are applicable here .... I think so in case reading or writing big data that needs to be handled */
 //     int quantum;
 //     int qset;
