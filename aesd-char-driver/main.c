@@ -139,14 +139,14 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     if (mutex_lock_interruptible(&dev->lock))
 		return -ERESTARTSYS;
     /* first allocate memeory with the given size "count" */
-    const char * allocated_memory = kmalloc(count, GFP_KERNEL);
+    char * allocated_memory = kmalloc(count, GFP_KERNEL);
     if (allocated_memory == NULL)
     {
         mutex_unlock(&dev->lock);
         printk(KERN_ERR "allocating memory went wrong!");
         return -ENOMEM;
     }
-    size_t const not_copied_bytes = copy_from_user((void *)allocated_memory, (const void *) buf, count);
+    size_t const not_copied_bytes = copy_from_user(allocated_memory, (const void *) buf, count);
     if (not_copied_bytes != 0)
     {
         kfree(allocated_memory);
@@ -208,7 +208,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     // handle last data
     if (start < count)
     {
-        int remaining = count - start;
+        size_t remaining = count - start;
         // we have some data after the \n (END_CHARACTER)
         if (dev->partial_buffer.size == 0)
         {
@@ -227,7 +227,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         {
             // This shouldn't normally happen if the loop processed all newlines,
             // but handle it for safety
-            int new_size = dev->partial_buffer.size + remaining;
+            size_t new_size = dev->partial_buffer.size + remaining;
             char * new_data = kmalloc(new_size, GFP_KERNEL);
             if (!new_data)
             {
