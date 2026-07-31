@@ -20,6 +20,8 @@
 #include "aesd-circular-buffer.h"
 #include <linux/fs.h> // file_operations
 #include "aesdchar.h"
+
+MODULE_DESCRIPTION("AESD character device driver");
 int aesd_major =   0; // use dynamic major
 int aesd_minor =   0;
 
@@ -35,17 +37,17 @@ int aesd_trim(struct aesd_dev * dev)
     int i;
     for ( i = 0; i < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++)
     {
-        if (dev->c_buffer->entry[i].buffptr != NULL)
+        if (dev->c_buffer.entry[i].buffptr != NULL)
         {
-            kfree(dev->c_buffer->entry[i].buffptr);
-            dev->c_buffer->entry[i].buffptr = NULL;
-            dev->c_buffer->entry[i].size = 0;
+            kfree(dev->c_buffer.entry[i].buffptr);
+            dev->c_buffer.entry[i].buffptr = NULL;
+            dev->c_buffer.entry[i].size = 0;
 
         }
     }
-    dev->c_buffer->full = false;
-    dev->c_buffer->in_offs = 0;
-    dev->c_buffer->out_offs = 0;
+    dev->c_buffer.full = false;
+    dev->c_buffer.in_offs = 0;
+    dev->c_buffer.out_offs = 0;
     return 0;
 }
 
@@ -59,14 +61,6 @@ int aesd_open(struct inode *inode, struct file *filp)
 	struct aesd_dev *dev; /* device information */
     dev = container_of(inode->i_cdev, struct aesd_dev, cdev);
     filp->private_data = dev;
-
-    /* trim file size to 0 if opend with write-only */
-    // if ( (filp->f_flags & O_ACCMODE) == O_WRONLY)
-    // {
-    //     if (mutex_lock_interruptible(&dev->lock))
-    //         return -ERESTARTSYS;
-    //     mutex_unlock(&dev->lock);
-    // }
 
     return 0;
 }
@@ -93,7 +87,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     if (mutex_lock_interruptible(&dev->lock))
         return -ERESTARTSYS;
     size_t entry_offset = 0;
-    struct aesd_buffer_entry * found_entry = aesd_circular_buffer_find_entry_offset_for_fpos(dev->c_buffer, *f_pos ,&entry_offset);
+    struct aesd_buffer_entry * found_entry = aesd_circular_buffer_find_entry_offset_for_fpos(&dev->c_buffer, *f_pos ,&entry_offset);
     if (found_entry == NULL)
     {
         // nothing to be read offset maybe too high
@@ -106,7 +100,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
         count = found_entry->size - entry_offset;
     }
     // copy to user only the count - entry_offset
-    int const remaining_bytes = copy_to_user(buf, found_entry->buffptr + entry_offset, count);
+    size_t const remaining_bytes = copy_to_user(buf, found_entry->buffptr + entry_offset, count);
     if (remaining_bytes != 0)
     {
         mutex_unlock(&dev->lock);
@@ -136,29 +130,32 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     // memory associated with write commands more than 10 writes ago should be freed.
     //
     // count is the number of bytes 
-
+    if (count == 0)
+    {
+        return 0;
+    }
     struct aesd_dev * dev = filp->private_data;
     /* lock mutex*/
     if (mutex_lock_interruptible(&dev->lock))
 		return -ERESTARTSYS;
     /* first allocate memeory with the given size "count" */
-    char * allocated_memory = kmalloc(count, GFP_KERNEL);
+    const char * allocated_memory = kmalloc(count, GFP_KERNEL);
     if (allocated_memory == NULL)
     {
         mutex_unlock(&dev->lock);
         printk(KERN_ERR "allocating memory went wrong!");
         return -ENOMEM;
     }
-    int not_copied_bytes = copy_from_user(allocated_memory, buf, count);
+    size_t const not_copied_bytes = copy_from_user((void *)allocated_memory, (const void *) buf, count);
     if (not_copied_bytes != 0)
     {
         kfree(allocated_memory);
         mutex_unlock(&dev->lock);
         return -EFAULT;
     }
-    int start = 0;
-    int end = 0;
-    for (int j = 0 ; j < count; j++)
+    size_t start = 0;
+    size_t end = 0;
+    for (size_t j = 0 ; j < count; j++)
     {
         if (allocated_memory[j] == END_CHARACTER)
         {
@@ -171,31 +168,31 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 if (dev->partial_buffer.buffptr == NULL)
                 {
                     kfree(allocated_memory);
-                    mutex_unlock(dev->lock);
+                    mutex_unlock(&dev->lock);
                     return -ENOMEM;
                 }
                 dev->partial_buffer.size = end - start + 1;
-                memcpy(dev->partial_buffer.buffptr, allocated_memory + start, end - start + 1);
+                memcpy((void *)dev->partial_buffer.buffptr, (const void *)allocated_memory + start, end - start + 1);
             }
             else
             {
                 // append the last parial data to the current (partial->size - 1) + j bytes
-                int old_size = dev->partial_buffer.size;
-                int new_size = old_size + end - start + 1;
+                size_t old_size = dev->partial_buffer.size;
+                size_t new_size = old_size + end - start + 1;
                 char * new_data = kmalloc(new_size, GFP_KERNEL);
                 if (new_data == NULL)
                 {
                     kfree(allocated_memory);
-                    mutex_unlock(dev->lock);
+                    mutex_unlock(&dev->lock);
                     return -ENOMEM;
                 }
-                memcpy(new_data, dev->partial_buffer.buffptr, old_size);
-                memcpy(new_data + old_size, allocated_memory + start, end - start + 1);
+                memcpy((void *)new_data, (const void *)dev->partial_buffer.buffptr, old_size);
+                memcpy((void *)new_data + old_size, (const void *)allocated_memory + start, end - start + 1);
                 kfree(dev->partial_buffer.buffptr);
                 dev->partial_buffer.buffptr = new_data;
                 dev->partial_buffer.size = new_size;
             }
-            if (NULL != (old_entry=aesd_circular_buffer_add_entry(dev->c_buffer, &dev->partial_buffer)))
+            if (NULL != (old_entry=aesd_circular_buffer_add_entry(&dev->c_buffer, &dev->partial_buffer)))
             {
                 // need to free the overwritten entry
                 kfree(old_entry->buffptr);
@@ -222,7 +219,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 mutex_unlock(&dev->lock);
                 return -ENOMEM;
             }
-            memcpy(dev->partial_buffer.buffptr, allocated_memory + start, remaining);
+            memcpy((void *)dev->partial_buffer.buffptr, (const void *)allocated_memory + start, remaining);
             dev->partial_buffer.size = remaining;
 
         }
@@ -238,8 +235,8 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 mutex_unlock(&dev->lock);
                 return -ENOMEM;
             }
-            memcpy(new_data, dev->partial_buffer.buffptr, dev->partial_buffer.size);
-            memcpy(new_data + dev->partial_buffer.size, allocated_memory + start, remaining);
+            memcpy((void *)new_data, (const void *)dev->partial_buffer.buffptr, dev->partial_buffer.size);
+            memcpy((void *)new_data + dev->partial_buffer.size, (const void *)allocated_memory + start, remaining);
             kfree(dev->partial_buffer.buffptr);
             dev->partial_buffer.buffptr = new_data;
             dev->partial_buffer.size = new_size;
@@ -298,14 +295,7 @@ int aesd_init_module(void)
     /* setup the mutex by calling mutex init*/
     mutex_init(&aesd_device.lock); // should set the mutex to 1 ( allow decrement and access at the beginning )
     /* setup the circular buffer */
-    aesd_device.c_buffer = kmalloc(sizeof(struct aesd_circular_buffer), GFP_KERNEL);
-    if (aesd_device.c_buffer == NULL)
-    {
-        unregister_chrdev_region(dev, 1);
-        printk(KERN_ERR "Failed to allocate memory");
-        return -ENOMEM;
-    }
-    aesd_circular_buffer_init(aesd_device.c_buffer);
+    aesd_circular_buffer_init(&aesd_device.c_buffer);
 
     result = aesd_setup_cdev(&aesd_device);
 
@@ -329,7 +319,6 @@ void aesd_cleanup_module(void)
     aesd_trim(&aesd_device); /* trim file to size 0*/
     kfree(aesd_device.partial_buffer.buffptr);
     mutex_unlock(&aesd_device.lock);
-    kfree(aesd_device.c_buffer);
     unregister_chrdev_region(devno, 1);
 }
 
