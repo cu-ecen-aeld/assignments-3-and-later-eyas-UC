@@ -32,7 +32,8 @@ struct aesd_dev aesd_device;
 int aesd_trim(struct aesd_dev * dev);
 int aesd_trim(struct aesd_dev * dev)
 {
-    for (int i = 0; i < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++)
+    int i;
+    for ( i = 0; i < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++)
     {
         if (dev->c_buffer->entry[i].buffptr != NULL)
         {
@@ -114,7 +115,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
         return -EFAULT;
     }
     /* update file position after read is successful*/
-    *f_pos = +count;
+    *f_pos += count;
     retval = count;
 
     mutex_unlock(&dev->lock);
@@ -169,7 +170,10 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
             if (NULL != (old_entry=aesd_circular_buffer_add_entry(dev->c_buffer, &dev->partial_buffer)))
             {
                 // need to free the overwritten entry
-                   kfree(old_entry);
+                kfree(old_entry->buffptr);
+                old_entry->size = 0;
+                dev->partial_buffer.buffptr = NULL;
+                dev->partial_buffer.size = 0U;
             }
         }
     }
@@ -197,12 +201,20 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         if (dev->partial_buffer.buffptr[dev->partial_buffer.size - 1] == END_CHARACTER)
         {
             /* Add the ready data and reset the partial buffer */
-            aesd_circular_buffer_add_entry(dev->c_buffer, &dev->partial_buffer);
+            struct aesd_buffer_entry * old_entry;
+            if (NULL != (old_entry=aesd_circular_buffer_add_entry(dev->c_buffer, &dev->partial_buffer)))
+            {
+                // need to free the overwritten entry
+                kfree(old_entry->buffptr);
+                old_entry->size = 0;
+                old_entry->buffptr = NULL;
+            }
             dev->partial_buffer.buffptr = NULL;
             dev->partial_buffer.size = 0U;
         }
     }
     kfree(allocated_memory);
+    retval = count;
     mutex_unlock(&dev->lock);
     return retval;
 }
@@ -223,7 +235,7 @@ static int aesd_setup_cdev(struct aesd_dev *dev)
     cdev_init(&dev->cdev, &aesd_fops);
     dev->cdev.owner = THIS_MODULE;
     dev->cdev.ops = &aesd_fops;
-    err = cdev_add (&dev->cdev, devno, 1);
+    err = cdev_add(&dev->cdev, devno, 1);
     if (err) {
         printk(KERN_ERR "Error %d adding aesd cdev", err);
     }
@@ -275,19 +287,18 @@ int aesd_init_module(void)
 void aesd_cleanup_module(void)
 {
     dev_t devno = MKDEV(aesd_major, aesd_minor);
-
+    
     cdev_del(&aesd_device.cdev);
-
+    
     /**
      * TODO: cleanup AESD specific poritions here as necessary
      */
-    unregister_chrdev_region(devno, 1);
     mutex_lock(&aesd_device.lock);
-
     aesd_trim(&aesd_device); /* trim file to size 0*/
+    mutex_unlock(&aesd_device.lock);
     kfree(aesd_device.partial_buffer.buffptr);
     kfree(aesd_device.c_buffer);
-    mutex_unlock(&aesd_device.lock);
+    unregister_chrdev_region(devno, 1);
 }
 
 
