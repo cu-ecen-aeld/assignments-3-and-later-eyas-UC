@@ -61,13 +61,12 @@ int aesd_open(struct inode *inode, struct file *filp)
     filp->private_data = dev;
 
     /* trim file size to 0 if opend with write-only */
-    if ( (filp->f_flags & O_ACCMODE) == O_WRONLY)
-    {
-        if (mutex_lock_interruptible(&dev->lock))
-            return -ERESTARTSYS;
-        // aesd_trim(dev); /* trim file to size 0*/
-        mutex_unlock(&dev->lock);
-    }
+    // if ( (filp->f_flags & O_ACCMODE) == O_WRONLY)
+    // {
+    //     if (mutex_lock_interruptible(&dev->lock))
+    //         return -ERESTARTSYS;
+    //     mutex_unlock(&dev->lock);
+    // }
 
     return 0;
 }
@@ -101,7 +100,6 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
         mutex_unlock(&dev->lock);
         return 0;
     }
-    const int first_addres = dev->c_buffer->out_offs;
     // found the starting point for the data to be returned
     if (count + entry_offset >= found_entry->size)
     {
@@ -158,50 +156,45 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         mutex_unlock(&dev->lock);
         return -EFAULT;
     }
-    if (dev->partial_buffer.size == 0U)
+    int start = 0;
+    int end = 0;
+    for (int j = 0 ; j < count; j++)
     {
-        // we got an empty partial_buffer
-        dev->partial_buffer.buffptr = kmalloc(count, GFP_KERNEL);
-        memcpy(dev->partial_buffer.buffptr, allocated_memory,count);
-        dev->partial_buffer.size = count;
-        if (dev->partial_buffer.buffptr[dev->partial_buffer.size - 1] == END_CHARACTER)
+        if (allocated_memory[j] == END_CHARACTER)
         {
+            end = j;
             struct aesd_buffer_entry * old_entry;
-            if (NULL != (old_entry=aesd_circular_buffer_add_entry(dev->c_buffer, &dev->partial_buffer)))
+            if (dev->partial_buffer.size == 0U)
             {
-                // need to free the overwritten entry
-                kfree(old_entry->buffptr);
-                old_entry->size = 0;
-                dev->partial_buffer.buffptr = NULL;
-                dev->partial_buffer.size = 0U;
+                // create new entry and append it
+                dev->partial_buffer.buffptr = kmalloc(end - start + 1, GFP_KERNEL);
+                if (dev->partial_buffer.buffptr == NULL)
+                {
+                    kfree(allocated_memory);
+                    mutex_unlock(dev->lock);
+                    return -ENOMEM;
+                }
+                dev->partial_buffer.size = end - start + 1;
+                memcpy(dev->partial_buffer.buffptr, allocated_memory + start, end - start + 1);
             }
-        }
-    }
-    else
-    {
-        // append the the new data
-        char * new_bigger_data = kmalloc(count + dev->partial_buffer.size, GFP_KERNEL);
-        if (new_bigger_data == NULL)
-        {
-            kfree(allocated_memory);
-            mutex_unlock(&dev->lock);
-            return -EFAULT;
-        }
-        /* move previous partial data to the new bigger allocated memory */
-        memcpy(new_bigger_data, dev->partial_buffer.buffptr, dev->partial_buffer.size);
-        /* append the data by copying to the new allocated memory with an offset of size of partial buffer */
-        memcpy(new_bigger_data + dev->partial_buffer.size, allocated_memory, count);
-        dev->partial_buffer.size = dev->partial_buffer.size + count;
-        /* free the old data */
-        kfree(dev->partial_buffer.buffptr);
-        /* point the partial buffer to the new bigger data */
-        dev->partial_buffer.buffptr = new_bigger_data;
-        /* does the data has an end character */
-
-        if (dev->partial_buffer.buffptr[dev->partial_buffer.size - 1] == END_CHARACTER)
-        {
-            /* Add the ready data and reset the partial buffer */
-            struct aesd_buffer_entry * old_entry;
+            else
+            {
+                // append the last parial data to the current (partial->size - 1) + j bytes
+                int old_size = dev->partial_buffer.size;
+                int new_size = old_size + end - start + 1;
+                char * new_data = kmalloc(new_size, GFP_KERNEL);
+                if (new_data == NULL)
+                {
+                    kfree(allocated_memory);
+                    mutex_unlock(dev->lock);
+                    return -ENOMEM;
+                }
+                memcpy(new_data, dev->partial_buffer.buffptr, old_size);
+                memcpy(new_data + old_size, allocated_memory + start, end - start + 1);
+                kfree(dev->partial_buffer.buffptr);
+                dev->partial_buffer.buffptr = new_data;
+                dev->partial_buffer.size = new_size;
+            }
             if (NULL != (old_entry=aesd_circular_buffer_add_entry(dev->c_buffer, &dev->partial_buffer)))
             {
                 // need to free the overwritten entry
@@ -209,8 +202,47 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 old_entry->size = 0;
                 old_entry->buffptr = NULL;
             }
+            // since we have added an entry inside this if of this for loop then we need to reset the partial entry struct
             dev->partial_buffer.buffptr = NULL;
             dev->partial_buffer.size = 0U;
+            start = end + 1;
+        }
+    }
+    // handle last data
+    if (start < count)
+    {
+        int remaining = count - start;
+        // we have some data after the \n (END_CHARACTER)
+        if (dev->partial_buffer.size == 0)
+        {
+            dev->partial_buffer.buffptr = kmalloc(remaining, GFP_KERNEL);
+            if (!dev->partial_buffer.buffptr)
+            {
+                kfree(allocated_memory);
+                mutex_unlock(&dev->lock);
+                return -ENOMEM;
+            }
+            memcpy(dev->partial_buffer.buffptr, allocated_memory + start, remaining);
+            dev->partial_buffer.size = remaining;
+
+        }
+        else
+        {
+            // This shouldn't normally happen if the loop processed all newlines,
+            // but handle it for safety
+            int new_size = dev->partial_buffer.size + remaining;
+            char * new_data = kmalloc(new_size, GFP_KERNEL);
+            if (!new_data)
+            {
+                kfree(allocated_memory);
+                mutex_unlock(&dev->lock);
+                return -ENOMEM;
+            }
+            memcpy(new_data, dev->partial_buffer.buffptr, dev->partial_buffer.size);
+            memcpy(new_data + dev->partial_buffer.size, allocated_memory + start, remaining);
+            kfree(dev->partial_buffer.buffptr);
+            dev->partial_buffer.buffptr = new_data;
+            dev->partial_buffer.size = new_size;
         }
     }
     kfree(allocated_memory);
@@ -295,8 +327,8 @@ void aesd_cleanup_module(void)
      */
     mutex_lock(&aesd_device.lock);
     aesd_trim(&aesd_device); /* trim file to size 0*/
-    mutex_unlock(&aesd_device.lock);
     kfree(aesd_device.partial_buffer.buffptr);
+    mutex_unlock(&aesd_device.lock);
     kfree(aesd_device.c_buffer);
     unregister_chrdev_region(devno, 1);
 }
