@@ -2,6 +2,7 @@
 
 # define variables 
 CC ?= $(CROSS_COMPILE)gcc
+USE_AESD_CHAR_DEVICE?=1
 CFLAGS ?= -Wall -g
 TARGET ?= aesdsocket
 LDFLAGS?= -lpthread -lrt

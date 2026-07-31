@@ -63,8 +63,13 @@ int main(int argc, char *argv[])
     if (pid == ZERO)
     {
             syslog(LOG_INFO,"starting aesd socket server . . .\n");
+            // #if defined USE_AESD_CHAR_DEVICE && USE_AESD_CHAR_DEVICE // simpler format
+            #if defined USE_AESD_CHAR_DEVICE && USE_AESD_CHAR_DEVICE == 1
+            // skip printing
+            #else
             pthread_t thread_id;
             pthread_create(&thread_id, NULL, printing_time, NULL);
+            #endif
             socket_listen("");
     }
     exit(0);
