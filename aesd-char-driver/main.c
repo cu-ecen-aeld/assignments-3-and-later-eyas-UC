@@ -146,6 +146,9 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         printk(KERN_ERR "allocating memory went wrong!");
         return -ENOMEM;
     }
+    
+
+
     size_t const not_copied_bytes = copy_from_user(allocated_memory, (const void *) buf, count);
     if (not_copied_bytes != 0)
     {
@@ -153,6 +156,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         mutex_unlock(&dev->lock);
         return -EFAULT;
     }
+    PDEBUG("wrote %zu bytes: <%.*s>", count, (int)count, allocated_memory);
     size_t start = 0;
     size_t end = 0;
     for (size_t j = 0 ; j < count; j++)

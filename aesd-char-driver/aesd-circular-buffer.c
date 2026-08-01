@@ -81,13 +81,17 @@ struct aesd_buffer_entry * aesd_circular_buffer_add_entry(struct aesd_circular_b
     * TODO: implement per description
     */
     // case where buffer is full, so we need to move the out_offs to the next entry to be overwritten
+    static struct aesd_buffer_entry evicted_entry;
     struct aesd_buffer_entry * overwritten_entry = NULL;
     if (buffer->full)
     {
-        // this will essentially resets to 0 when LHS buffer->out_offs = 9 where 
+        // copy the old entry's contents out now: buffer->entry[buffer->in_offs] is about to be
+        // overwritten in place below, so a pointer into the array would alias the new entry
+        evicted_entry = buffer->entry[buffer->in_offs];
+        overwritten_entry = &evicted_entry;
+        // this will essentially resets to 0 when LHS buffer->out_offs = 9 where
         // the RHS buffer->out_offs + 1 = 10 and 10 % 10 = 0;
-        buffer->out_offs = (buffer->out_offs + 1) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; 
-        overwritten_entry = &buffer->entry[buffer->out_offs];
+        buffer->out_offs = (buffer->out_offs + 1) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
     }
     // add the new entr]y to the buffer
     buffer->entry[buffer->in_offs] = *add_entry;
