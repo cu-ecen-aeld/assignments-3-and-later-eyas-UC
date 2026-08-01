@@ -86,7 +86,7 @@ struct aesd_buffer_entry * aesd_circular_buffer_add_entry(struct aesd_circular_b
     {
         // copy the old entry's contents out now: buffer->entry[buffer->in_offs] is about to be
         // overwritten in place below, so a pointer into the array would alias the new entry
-o       verwritten_entry = &buffer->entry[buffer->in_offs];
+        overwritten_entry = &buffer->entry[buffer->in_offs];
         // this will essentially resets to 0 when LHS buffer->out_offs = 9 where
         // the RHS buffer->out_offs + 1 = 10 and 10 % 10 = 0;
         buffer->out_offs = (buffer->out_offs + 1) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
