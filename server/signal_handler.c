@@ -15,7 +15,7 @@ void signal_handler(const int signal_no)
     signal_caught = true;
     syslog(LOG_ALERT, "Caught signal, exiting");
     syslog(LOG_ALERT, "Closed connection from %s",ip4);
-#if defined USE_AESD_CHAR_DEVICE && USE_AESD_CHAR_DEVICE == 1
+#ifdef USE_AESD_CHAR_DEVICE
             // skip printing
 #else
     int remove_ret = remove(TEMP_FILE_PATH);
