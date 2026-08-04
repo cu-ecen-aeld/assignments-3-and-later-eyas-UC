@@ -164,7 +164,6 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         if (allocated_memory[j] == END_CHARACTER)
         {
             end = j;
-            struct aesd_buffer_entry * old_entry;
             if (dev->partial_buffer.size == 0U)
             {
                 // create new entry and append it
@@ -196,6 +195,8 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 dev->partial_buffer.buffptr = new_data;
                 dev->partial_buffer.size = new_size;
             }
+            struct aesd_buffer_entry * old_entry;
+            // here we will an entry in any case.
             if (NULL != (old_entry=aesd_circular_buffer_add_entry(&dev->c_buffer, &dev->partial_buffer)))
             {
                 // need to free the overwritten entry
@@ -323,6 +324,7 @@ void aesd_cleanup_module(void)
     aesd_trim(&aesd_device); /* trim file to size 0*/
     kfree(aesd_device.partial_buffer.buffptr);
     mutex_unlock(&aesd_device.lock);
+    mutex_destroy(&aesd_device.lock);
     unregister_chrdev_region(devno, 1);
 }
 
