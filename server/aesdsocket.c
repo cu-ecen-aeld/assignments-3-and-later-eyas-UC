@@ -11,6 +11,9 @@ extern pthread_mutex_t reply_mutex;
 extern pthread_mutex_t thread_join_mutex;
 extern pthread_cond_t cv_join;
 extern char * to_write;
+#ifndef USE_AESD_CHAR_DEVICE
+#define USE_AESD_CHAR_DEVICE 1
+#endif
 
 void* printing_time()
 {
@@ -63,8 +66,13 @@ int main(int argc, char *argv[])
     if (pid == ZERO)
     {
             syslog(LOG_INFO,"starting aesd socket server . . .\n");
+            // #if defined USE_AESD_CHAR_DEVICE && USE_AESD_CHAR_DEVICE // simpler format
+            #ifdef USE_AESD_CHAR_DEVICE
+            // skip printing
+            #else
             pthread_t thread_id;
             pthread_create(&thread_id, NULL, printing_time, NULL);
+            #endif
             socket_listen("");
     }
     exit(0);

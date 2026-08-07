@@ -35,8 +35,13 @@
 #define SUCCESS true
 #define FAILURE false
 #define BUFFER_SIZE 1024U
+#ifdef USE_AESD_CHAR_DEVICE
+// device driver path
+#define TEMP_FILE_PATH "/dev/aesdchar"
+#else
+// normal tmp path
 #define TEMP_FILE_PATH "/var/tmp/aesdsocketdata"
-
+#endif
 
 
 

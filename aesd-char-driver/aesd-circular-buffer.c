@@ -8,12 +8,14 @@
  *
  */
 
-#include <stddef.h>
-#include <stdio.h>
+
 #ifdef __KERNEL__
+#include <linux/stddef.h>
 #include <linux/string.h>
 #else
 #include <string.h>
+#include <stdio.h>
+
 #endif
 
 #include "aesd-circular-buffer.h"
@@ -39,7 +41,7 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 
     // buffer->in_offs can never be greater than buffer->out_offs
     // the start is always from buffer->offs to buffer->in_offs
-    // iff in ==out then buffer then check the full to loop through everything otherwise return null;
+    // if in == out then buffer then check the full to loop through everything otherwise return null;
     if (buffer->full == true && (buffer->in_offs == buffer->out_offs))
     {
     }
@@ -73,17 +75,25 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 * Any necessary locking must be handled by the caller
 * Any memory referenced in @param add_entry must be allocated by and/or must have a lifetime managed by the caller.
 */
-void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
+struct aesd_buffer_entry * aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
 {
     /**
     * TODO: implement per description
     */
     // case where buffer is full, so we need to move the out_offs to the next entry to be overwritten
+    static struct aesd_buffer_entry evicted_entry;
+    struct aesd_buffer_entry * overwritten_entry = NULL;
     if (buffer->full)
     {
-        buffer->out_offs = (buffer->out_offs + 1) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; 
+        // copy the old entry's contents out now: buffer->entry[buffer->in_offs] is about to be
+        // overwritten in place below, so a pointer into the array would alias the new entry
+        evicted_entry = buffer->entry[buffer->in_offs];
+        overwritten_entry = &evicted_entry;
+        // this will essentially resets to 0 when LHS buffer->out_offs = 9 where
+        // the RHS buffer->out_offs + 1 = 10 and 10 % 10 = 0;
+        buffer->out_offs = (buffer->out_offs + 1) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
     }
-    // add the new entry to the buffer
+    // add the new entr]y to the buffer
     buffer->entry[buffer->in_offs] = *add_entry;
     // move the in_offs to the next location
     buffer->in_offs = (buffer->in_offs + 1) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; 
@@ -93,6 +103,7 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
     {
         buffer->full = true;
     }
+    return overwritten_entry;
 }
 
 /**
