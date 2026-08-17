@@ -114,13 +114,13 @@ void *connection_handler(void *passed_fulldata)
 			printf("error in reading data!!!\n");
 		}
 		const char * AESD_IOCTL_STR = "AESDCHAR_IOCSEEKTO:";
-		if(NULL == strstr(AESD_IOCTL_STR, buffer))
+		if(NULL != strstr(buffer, AESD_IOCTL_STR))
 		{
 			// printf("found the following\n%s\n", buffer);
 			// syslog(LOG_INFO, "found the folllowing\n%s\n",buffer);
 			int write_cmd = 0;
 			int offset = 0;
-			if(scanf("AESDCHAR_IOCSEEKTO:%i,%i",&write_cmd, &offset)<0)
+			if(sscanf(buffer, "AESDCHAR_IOCSEEKTO:%i,%i",&write_cmd, &offset)<0)
 			{
 				syslog(LOG_INFO, "error scanning the ioctl numbers");
 			}
@@ -284,7 +284,7 @@ void *socket_listen(void *arg)
 					break;
 				}
 				pthread_t thread_id;
-				printf("new_connection file descriptor is <%i>", new_fd);
+				// printf("new_connection file descriptor is <%i>", new_fd);
 				thread_data_t thread_data = { new_fd, their_addr, thread_id, false };
 				full_data_t *full_set = malloc(sizeof(full_data_t));
 				full_set->thread_data = thread_data;
