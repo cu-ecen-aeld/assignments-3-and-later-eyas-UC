@@ -35,9 +35,13 @@ void* printing_time()
         pthread_mutex_unlock(&reply_mutex);
         pthread_mutex_lock(&file_mutex);
         int fd = open(TEMP_FILE_PATH, O_SYNC| O_RDWR  |O_CREAT | O_APPEND, S_IWUSR |S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
-        write(fd, date, strlen(date));
+        if (write(fd, date, strlen(date)) < 0)
+        {
+            syslog(LOG_ERR, "negative write value");
+
+        }
         fsync(fd);
-        close(fd);        
+        close(fd);
         pthread_mutex_unlock(&file_mutex);
     }
 }

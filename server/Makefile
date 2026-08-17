@@ -3,7 +3,8 @@
 # define variables 
 CC ?= $(CROSS_COMPILE)gcc
 CFLAGS ?= -Wall -g
-CFLAGS += -I../aesd-char-driver
+CFLAGS += -I$(CURDIR)/../aesd-char-driver/
+
 TARGET ?= aesdsocket
 LDFLAGS?= -lpthread -lrt
 SRCS = aesdsocket.c
