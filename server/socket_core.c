@@ -105,7 +105,7 @@ void *connection_handler(void *passed_fulldata)
 		printf("The IPv4 address is: %s\n", ip4);
 		syslog(LOG_INFO, "Accepted connection from %s", ip4);
 	}
-	printf("strlen(to_write)=%lu and size = %li\n",strlen(to_write),size);
+	// printf("strlen(to_write)=%lu and size = %li\n",strlen(to_write),size);
 
 	while((read_ret = read(fulldata->thread_data.file_descriptor, buffer, BUFFER_SIZE)) > 0)
 	{
