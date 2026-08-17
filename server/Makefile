@@ -3,6 +3,7 @@
 # define variables 
 CC ?= $(CROSS_COMPILE)gcc
 CFLAGS ?= -Wall -g
+CFLAGS += -I../aesd-char-driver
 TARGET ?= aesdsocket
 LDFLAGS?= -lpthread -lrt
 SRCS = aesdsocket.c
@@ -10,10 +11,12 @@ SRCS += signal_handler.c
 SRCS += socket_core.c
 SRCS += linkedlist.c
 
-HEADERS = signal_handler.h 
-HEADERS += socket_core.h 
+# HEADERS is documentation only
+HEADERS = signal_handler.h
+HEADERS += socket_core.h
 HEADERS += queue.h
 HEADERS += linkedlist.h
+HEADERS += ../aesd-char-driver/aesd_ioctl.h
 OBJS = $(SRCS:.c=.o)
 BUILD_COMMAND=$(CC) $(CFLAGS) $(LDFLAGS) 
 

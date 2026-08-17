@@ -17,6 +17,8 @@
 #include <threads.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
+#include "aesd_ioctl.h"
 
 extern int signal_caught;
 extern struct sigaction new_action;
@@ -91,14 +93,6 @@ void *connection_handler(void *passed_fulldata)
 	memset(to_write_local, 0, INIT_ALLOCATION);
 	pthread_t thread_id = pthread_self();
 	fulldata->thread_data.thread_id = thread_id;
-	// pthread_mutex_lock(&linked_list->mutex);
-	// node *thread_data = get_thread_data_no_mutex(fulldata->linkedlist, thread_id);
-	// pthread_mutex_unlock(&linked_list->mutex);
-	// if(thread_data == NULL)
-	// {
-	// 	printf("could not find thread id\n");
-	// 	return NULL;
-	// }
 
 	if(fulldata->thread_data.file_descriptor < 0)
 	{
@@ -111,13 +105,27 @@ void *connection_handler(void *passed_fulldata)
 		printf("The IPv4 address is: %s\n", ip4);
 		syslog(LOG_INFO, "Accepted connection from %s", ip4);
 	}
-	// printf("strlen(to_write)=%lu and size = %li\n",strlen(to_write),size);
+	printf("strlen(to_write)=%lu and size = %li\n",strlen(to_write),size);
 
 	while((read_ret = read(fulldata->thread_data.file_descriptor, buffer, BUFFER_SIZE)) > 0)
 	{
 		if(read_ret == -1)
 		{
 			printf("error in reading data!!!\n");
+		}
+		const char * AESD_IOCTL_STR = "AESDCHAR_IOCSEEKTO:";
+		if(NULL == strstr(AESD_IOCTL_STR, buffer))
+		{
+			// printf("found the following\n%s\n", buffer);
+			// syslog(LOG_INFO, "found the folllowing\n%s\n",buffer);
+			int write_cmd = 0;
+			int offset = 0;
+			if(scanf("AESDCHAR_IOCSEEKTO:%i,%i",&write_cmd, &offset)<0)
+			{
+				syslog(LOG_INFO, "error scanning the ioctl numbers");
+			}
+			struct aesd_seekto cmd = {.write_cmd=write_cmd, .write_cmd_offset=offset};
+			ioctl(fulldata->thread_data.file_descriptor,AESDCHAR_IOCSEEKTO, &cmd);
 		}
 		// size doubling section
 		// **************************************************************//

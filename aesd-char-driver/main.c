@@ -295,7 +295,7 @@ long int adjust_aesd_file_offset(struct file *filp, uint32_t write_cmd, uint32_t
     }
     /* finding the right size*/
     long int new_pos = 0;
-    int target_index = (write_cmd + buffer->out_offs) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+    uint32_t target_index = (write_cmd + buffer->out_offs) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
     for (uint32_t i = 0; i < write_cmd; i++)
     {
         uint32_t index = (i + buffer->out_offs) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
