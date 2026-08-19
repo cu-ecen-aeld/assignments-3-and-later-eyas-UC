@@ -265,15 +265,13 @@ static loff_t get_total_size(struct aesd_circular_buffer * buffer)
 
 loff_t aesd_lseek(struct file * filp, loff_t off, int whence)
 {
-    loff_t new_position;
     struct aesd_dev *dev = filp->private_data;
     if (mutex_lock_interruptible(&dev->lock))
         return -ERESTARTSYS;
     loff_t total_size = get_total_size(&dev->c_buffer);
     mutex_unlock(&dev->lock);
 
-    new_position = fixed_size_llseek(filp, off, whence, total_size);
-    return new_position;
+    return fixed_size_llseek(filp, off, whence, total_size);
 }
 
 long int adjust_aesd_file_offset(struct file *filp, uint32_t write_cmd, uint32_t write_cmd_offset)
@@ -335,8 +333,6 @@ long aesd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     {
         case AESDCHAR_IOCSEEKTO:
         {
-
-            // some manual seeking here
             /* get the command from the user space */
             struct aesd_seekto command;
             if (copy_from_user(&command, (struct aesd_seekto __user *)arg, sizeof(command)))
@@ -354,7 +350,6 @@ long aesd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		    return -ENOTTY;
     }
 
-    
     return retval;
 }
 // file ops goes under struct file

@@ -14,12 +14,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/syslog.h>
+#include <sys/types.h>
+#include <netdb.h>
 #include <threads.h>
 #include <time.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include "aesd_ioctl.h"
-
+#define NULL_TERMINATOR '\0'
 extern int signal_caught;
 extern struct sigaction new_action;
 
@@ -69,17 +71,6 @@ void *joining_thread_handler(void *passed_linkedlist)
 		pthread_join(old_head->data.thread_id, NULL);
 		remove_element_from_linked_list_no_mutex(linkedlist, old_head->data.thread_id);
 		free(old_head);
-
-		// while(it != NULL)
-		// {
-		// 	if(it->data.completion == true)
-		// 	{
-		// 		pthread_join(it->data.thread_id, NULL);
-		// 		temp = it;
-		// 		it = it->next;
-		// 	}
-		// }
-		// pthread_mutex_unlock(&linkedlist->mutex);
 	}
 }
 void *connection_handler(void *passed_fulldata)
@@ -109,23 +100,35 @@ void *connection_handler(void *passed_fulldata)
 
 	while((read_ret = read(fulldata->thread_data.file_descriptor, buffer, BUFFER_SIZE)) > 0)
 	{
-		if(read_ret == -1)
-		{
-			printf("error in reading data!!!\n");
-		}
 		const char * AESD_IOCTL_STR = "AESDCHAR_IOCSEEKTO:";
-		if(NULL != strstr(buffer, AESD_IOCTL_STR))
+		char * result = memchr(buffer, NULL_TERMINATOR,BUFFER_SIZE);
+
+		if(NULL != strstr(buffer, AESD_IOCTL_STR) && result != NULL)
 		{
-			// printf("found the following\n%s\n", buffer);
-			// syslog(LOG_INFO, "found the folllowing\n%s\n",buffer);
 			int write_cmd = 0;
 			int offset = 0;
-			if(sscanf(buffer, "AESDCHAR_IOCSEEKTO:%i,%i",&write_cmd, &offset)<0)
+			if(sscanf(buffer, "AESDCHAR_IOCSEEKTO:%i,%i",&write_cmd, &offset) != TWO)
 			{
 				syslog(LOG_INFO, "error scanning the ioctl numbers");
 			}
+			// printf("write command = %i, offset = %i \n", write_cmd, offset);
 			struct aesd_seekto cmd = {.write_cmd=write_cmd, .write_cmd_offset=offset};
-			ioctl(fulldata->thread_data.file_descriptor,AESDCHAR_IOCSEEKTO, &cmd);
+			int ioctl_error = 0;
+			if(0 !=(ioctl_error= ioctl(temp_file_fd ,AESDCHAR_IOCSEEKTO, &cmd)))
+			{
+				syslog(LOG_ERR, "ioctl errored with return value %i", ioctl_error);
+				printf("ioctl errored with return value %i", ioctl_error);
+			}
+			pthread_mutex_lock(&file_mutex);
+			char rbuf[BUFFER_SIZE];
+			ssize_t n;
+			while ((n = read(temp_file_fd, buffer, BUFFER_SIZE)) > 0)
+			{
+        		send(fulldata->thread_data.file_descriptor, rbuf, n, 0);
+			}
+			pthread_mutex_unlock(&file_mutex);
+			/* since we don't want to reply (write()) this string to the driver we skip this loop */
+			return 0;
 		}
 		// size doubling section
 		// **************************************************************//
@@ -172,8 +175,6 @@ void *connection_handler(void *passed_fulldata)
 	}
 	close(fulldata->thread_data.file_descriptor);
 	pthread_mutex_lock(&file_mutex);
-	int temp_file_fd
-		= open(TEMP_FILE_PATH, O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
 	write(temp_file_fd, to_write, strlen(to_write));
 	pthread_mutex_unlock(&file_mutex);
 
@@ -252,6 +253,8 @@ void *socket_listen(void *arg)
 	struct pollfd pfd;
 	pfd.fd = socket_fd;
 	pfd.events = POLLIN;
+
+	temp_file_fd = open(TEMP_FILE_PATH, O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
 
 	while(true)
 	{
