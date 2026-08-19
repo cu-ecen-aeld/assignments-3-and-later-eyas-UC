@@ -103,7 +103,7 @@ void *connection_handler(void *passed_fulldata)
 		const char * AESD_IOCTL_STR = "AESDCHAR_IOCSEEKTO:";
 		char * result = memchr(buffer, NULL_TERMINATOR,BUFFER_SIZE);
 
-		if(NULL != strstr(buffer, AESD_IOCTL_STR) && result != NULL)
+		if(result != NULL && NULL != strstr(buffer, AESD_IOCTL_STR))
 		{
 			int write_cmd = 0;
 			int offset = 0;
@@ -114,20 +114,40 @@ void *connection_handler(void *passed_fulldata)
 			// printf("write command = %i, offset = %i \n", write_cmd, offset);
 			struct aesd_seekto cmd = {.write_cmd=write_cmd, .write_cmd_offset=offset};
 			int ioctl_error = 0;
-			if(0 !=(ioctl_error= ioctl(temp_file_fd ,AESDCHAR_IOCSEEKTO, &cmd)))
+
+			/* seek + read must be one critical section: the ioctl sets the file
+			 * position on the shared temp_file_fd, so no other thread may move it
+			 * again before we finish reading from that position. */
+			pthread_mutex_lock(&file_mutex);
+			if((ioctl_error = ioctl(temp_file_fd, AESDCHAR_IOCSEEKTO, &cmd)) < 0)
 			{
 				syslog(LOG_ERR, "ioctl errored with return value %i", ioctl_error);
 				printf("ioctl errored with return value %i", ioctl_error);
 			}
-			pthread_mutex_lock(&file_mutex);
-			char rbuf[BUFFER_SIZE];
-			ssize_t n;
-			while ((n = read(temp_file_fd, buffer, BUFFER_SIZE)) > 0)
+			else
 			{
-        		send(fulldata->thread_data.file_descriptor, rbuf, n, 0);
+				ssize_t n;
+				while ((n = read(temp_file_fd, buffer, BUFFER_SIZE)) > 0)
+				{
+					send(fulldata->thread_data.file_descriptor, buffer, n, 0);
+				}
 			}
 			pthread_mutex_unlock(&file_mutex);
-			/* since we don't want to reply (write()) this string to the driver we skip this loop */
+
+			/* since we don't want to reply (write()) this string to the driver we skip
+			 * the rest of the loop, but we still need the same fd/thread bookkeeping
+			 * the normal completion path below does. */
+			close(fulldata->thread_data.file_descriptor);
+			free(to_write_local);
+
+			pthread_mutex_lock(&fulldata->linkedlist->mutex);
+			insert_element_to_linked_list_no_mutex(fulldata->linkedlist, fulldata->thread_data);
+			set_thread_status_no_mutex(fulldata->linkedlist, thread_id, true);
+			pthread_mutex_unlock(&fulldata->linkedlist->mutex);
+			pthread_mutex_lock(&thread_join_mutex);
+			pthread_cond_signal(&cv_join);
+			pthread_mutex_unlock(&thread_join_mutex);
+			free(fulldata);
 			return 0;
 		}
 		// size doubling section
