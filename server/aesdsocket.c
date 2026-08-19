@@ -11,9 +11,6 @@ extern pthread_mutex_t reply_mutex;
 extern pthread_mutex_t thread_join_mutex;
 extern pthread_cond_t cv_join;
 extern char * to_write;
-#ifndef USE_AESD_CHAR_DEVICE
-#define USE_AESD_CHAR_DEVICE 1
-#endif
 
 void* printing_time()
 {

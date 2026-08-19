@@ -4,6 +4,7 @@
 CC ?= $(CROSS_COMPILE)gcc
 CFLAGS ?= -Wall -g
 CFLAGS += -I$(CURDIR)/../aesd-char-driver/
+CFLAGS += -DUSE_AESD_CHAR_DEVICE
 
 TARGET ?= aesdsocket
 LDFLAGS?= -lpthread -lrt
