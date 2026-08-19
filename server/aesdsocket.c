@@ -11,9 +11,6 @@ extern pthread_mutex_t reply_mutex;
 extern pthread_mutex_t thread_join_mutex;
 extern pthread_cond_t cv_join;
 extern char * to_write;
-#ifndef USE_AESD_CHAR_DEVICE
-#define USE_AESD_CHAR_DEVICE 1
-#endif
 
 void* printing_time()
 {
@@ -35,9 +32,13 @@ void* printing_time()
         pthread_mutex_unlock(&reply_mutex);
         pthread_mutex_lock(&file_mutex);
         int fd = open(TEMP_FILE_PATH, O_SYNC| O_RDWR  |O_CREAT | O_APPEND, S_IWUSR |S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
-        write(fd, date, strlen(date));
+        if (write(fd, date, strlen(date)) < 0)
+        {
+            syslog(LOG_ERR, "negative write value");
+
+        }
         fsync(fd);
-        close(fd);        
+        close(fd);
         pthread_mutex_unlock(&file_mutex);
     }
 }

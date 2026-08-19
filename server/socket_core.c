@@ -14,10 +14,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/syslog.h>
+#include <sys/types.h>
+#include <netdb.h>
 #include <threads.h>
 #include <time.h>
 #include <unistd.h>
-
+#include <sys/ioctl.h>
+#include "aesd_ioctl.h"
+#define NULL_TERMINATOR '\0'
 extern int signal_caught;
 extern struct sigaction new_action;
 
@@ -67,17 +71,6 @@ void *joining_thread_handler(void *passed_linkedlist)
 		pthread_join(old_head->data.thread_id, NULL);
 		remove_element_from_linked_list_no_mutex(linkedlist, old_head->data.thread_id);
 		free(old_head);
-
-		// while(it != NULL)
-		// {
-		// 	if(it->data.completion == true)
-		// 	{
-		// 		pthread_join(it->data.thread_id, NULL);
-		// 		temp = it;
-		// 		it = it->next;
-		// 	}
-		// }
-		// pthread_mutex_unlock(&linkedlist->mutex);
 	}
 }
 void *connection_handler(void *passed_fulldata)
@@ -91,14 +84,6 @@ void *connection_handler(void *passed_fulldata)
 	memset(to_write_local, 0, INIT_ALLOCATION);
 	pthread_t thread_id = pthread_self();
 	fulldata->thread_data.thread_id = thread_id;
-	// pthread_mutex_lock(&linked_list->mutex);
-	// node *thread_data = get_thread_data_no_mutex(fulldata->linkedlist, thread_id);
-	// pthread_mutex_unlock(&linked_list->mutex);
-	// if(thread_data == NULL)
-	// {
-	// 	printf("could not find thread id\n");
-	// 	return NULL;
-	// }
 
 	if(fulldata->thread_data.file_descriptor < 0)
 	{
@@ -115,9 +100,55 @@ void *connection_handler(void *passed_fulldata)
 
 	while((read_ret = read(fulldata->thread_data.file_descriptor, buffer, BUFFER_SIZE)) > 0)
 	{
-		if(read_ret == -1)
+		const char * AESD_IOCTL_STR = "AESDCHAR_IOCSEEKTO:";
+		char * result = memchr(buffer, NULL_TERMINATOR,BUFFER_SIZE);
+
+		if(result != NULL && NULL != strstr(buffer, AESD_IOCTL_STR))
 		{
-			printf("error in reading data!!!\n");
+			int write_cmd = 0;
+			int offset = 0;
+			if(sscanf(buffer, "AESDCHAR_IOCSEEKTO:%i,%i",&write_cmd, &offset) != TWO)
+			{
+				syslog(LOG_INFO, "error scanning the ioctl numbers");
+			}
+			// printf("write command = %i, offset = %i \n", write_cmd, offset);
+			struct aesd_seekto cmd = {.write_cmd=write_cmd, .write_cmd_offset=offset};
+			int ioctl_error = 0;
+
+			/* seek + read must be one critical section: the ioctl sets the file
+			 * position on the shared temp_file_fd, so no other thread may move it
+			 * again before we finish reading from that position. */
+			pthread_mutex_lock(&file_mutex);
+			if((ioctl_error = ioctl(temp_file_fd, AESDCHAR_IOCSEEKTO, &cmd)) < 0)
+			{
+				syslog(LOG_ERR, "ioctl errored with return value %i", ioctl_error);
+				printf("ioctl errored with return value %i", ioctl_error);
+			}
+			else
+			{
+				ssize_t n;
+				while ((n = read(temp_file_fd, buffer, BUFFER_SIZE)) > 0)
+				{
+					send(fulldata->thread_data.file_descriptor, buffer, n, 0);
+				}
+			}
+			pthread_mutex_unlock(&file_mutex);
+
+			/* since we don't want to reply (write()) this string to the driver we skip
+			 * the rest of the loop, but we still need the same fd/thread bookkeeping
+			 * the normal completion path below does. */
+			close(fulldata->thread_data.file_descriptor);
+			free(to_write_local);
+
+			pthread_mutex_lock(&fulldata->linkedlist->mutex);
+			insert_element_to_linked_list_no_mutex(fulldata->linkedlist, fulldata->thread_data);
+			set_thread_status_no_mutex(fulldata->linkedlist, thread_id, true);
+			pthread_mutex_unlock(&fulldata->linkedlist->mutex);
+			pthread_mutex_lock(&thread_join_mutex);
+			pthread_cond_signal(&cv_join);
+			pthread_mutex_unlock(&thread_join_mutex);
+			free(fulldata);
+			return 0;
 		}
 		// size doubling section
 		// **************************************************************//
@@ -164,8 +195,6 @@ void *connection_handler(void *passed_fulldata)
 	}
 	close(fulldata->thread_data.file_descriptor);
 	pthread_mutex_lock(&file_mutex);
-	int temp_file_fd
-		= open(TEMP_FILE_PATH, O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
 	write(temp_file_fd, to_write, strlen(to_write));
 	pthread_mutex_unlock(&file_mutex);
 
@@ -245,6 +274,8 @@ void *socket_listen(void *arg)
 	pfd.fd = socket_fd;
 	pfd.events = POLLIN;
 
+	temp_file_fd = open(TEMP_FILE_PATH, O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
+
 	while(true)
 	{
 		int ret = poll(&pfd, 1, -1);
@@ -276,7 +307,7 @@ void *socket_listen(void *arg)
 					break;
 				}
 				pthread_t thread_id;
-				printf("new_connection file descriptor is <%i>", new_fd);
+				// printf("new_connection file descriptor is <%i>", new_fd);
 				thread_data_t thread_data = { new_fd, their_addr, thread_id, false };
 				full_data_t *full_set = malloc(sizeof(full_data_t));
 				full_set->thread_data = thread_data;

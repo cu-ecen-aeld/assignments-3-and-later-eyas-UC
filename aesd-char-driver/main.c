@@ -20,6 +20,7 @@
 #include "aesd-circular-buffer.h"
 #include <linux/fs.h> // file_operations
 #include "aesdchar.h"
+#include "aesd_ioctl.h"
 
 MODULE_DESCRIPTION("AESD character device driver");
 int aesd_major =   0; // use dynamic major
@@ -252,14 +253,115 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     mutex_unlock(&dev->lock);
     return retval;
 }
+static loff_t get_total_size(struct aesd_circular_buffer * buffer)
+{
+    loff_t size = 0;
+    for (int i = 0; i < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++)
+    {
+            size = size + buffer->entry[i].size;
+    }
+    return size;
+}
+
+loff_t aesd_lseek(struct file * filp, loff_t off, int whence)
+{
+    struct aesd_dev *dev = filp->private_data;
+    if (mutex_lock_interruptible(&dev->lock))
+        return -ERESTARTSYS;
+    loff_t total_size = get_total_size(&dev->c_buffer);
+    mutex_unlock(&dev->lock);
+
+    return fixed_size_llseek(filp, off, whence, total_size);
+}
+
+long int adjust_aesd_file_offset(struct file *filp, uint32_t write_cmd, uint32_t write_cmd_offset)
+{
+    /* range check */
+    struct aesd_dev * dev = filp->private_data;
+    struct aesd_circular_buffer * buffer = &dev->c_buffer;
+    // last_index = buffer->in_offs;
+
+    if (mutex_lock_interruptible(&dev->lock))
+    {
+        return -ERESTARTSYS;
+    }
+    if (write_cmd >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+    {
+        printk(KERN_ERR "writing value greater than max supported ioctl seekto operation\n");
+        mutex_unlock(&dev->lock);
+        return -EINVAL;
+    }
+    /* finding the right size*/
+    long int new_pos = 0;
+    uint32_t target_index = (write_cmd + buffer->out_offs) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+    for (uint32_t i = 0; i < write_cmd; i++)
+    {
+        uint32_t index = (i + buffer->out_offs) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+        if ((buffer->entry[index].buffptr == NULL) && (buffer->entry[index].size == 0))
+        {
+            mutex_unlock(&dev->lock);
+            return -EINVAL;
+        }
+        else
+        {
+            new_pos += buffer->entry[index].size;
+        }
+    }
+    /* greater than or equal because if equal then you will be starting from after the last element */
+    /* adding empty target index offset check*/
+    if ((buffer->entry[target_index].buffptr == NULL ) || (write_cmd_offset >= buffer->entry[target_index].size))
+    {
+        printk(KERN_ERR "offset is bigger than entry size");
+        mutex_unlock(&dev->lock);
+        return -EINVAL;
+    }
+    else
+    {
+        new_pos += write_cmd_offset;
+    }
+    filp->f_pos = new_pos;
+    mutex_unlock(&dev->lock);
+    return new_pos;
+}
+
+long aesd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+    struct aesd_dev * dev = filp->private_data;
+
+    long int retval = 0;
+    switch (cmd)
+    {
+        case AESDCHAR_IOCSEEKTO:
+        {
+            /* get the command from the user space */
+            struct aesd_seekto command;
+            if (copy_from_user(&command, (struct aesd_seekto __user *)arg, sizeof(command)))
+            {
+                retval = -EFAULT;
+            }
+            else
+            {
+               retval = adjust_aesd_file_offset(filp, command.write_cmd, command.write_cmd_offset);
+            }
+            break;
+        }
+
+        default:  /* redundant, as cmd was checked against MAXNR */
+		    return -ENOTTY;
+    }
+
+    return retval;
+}
 // file ops goes under struct file
-struct file_operations aesd_fops = 
+struct file_operations aesd_fops =
 {
     .owner =    THIS_MODULE,
     .read =     aesd_read,
     .write =    aesd_write,
     .open =     aesd_open,
     .release =  aesd_release,
+    .llseek = aesd_lseek,
+    .unlocked_ioctl = aesd_ioctl,
 };
 
 static int aesd_setup_cdev(struct aesd_dev *dev)
